@@ -1,0 +1,21 @@
+yt-dlp -f "bv*[height<=2160]+ba/b[height<=2160]" --merge-output-format mkv "https://youtu.be/53tgVlXBZVg"
+
+
+
+
+C:\Users\newbe\OneDrive\Documents\Projects\AIBot
+
+GIT - 888!VMW@r3!888
+
+
+memory.py
+
+save_conversations.py
+
+memory_test.py
+
+file_bot_type.py
+
+watcher_bot.py
+
+memory_setup.py

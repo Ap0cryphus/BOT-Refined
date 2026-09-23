@@ -1,0 +1,12 @@
+pywinauto
+requests
+pyautogui
+pyperclip
+keyboard
+edge-tts
+pygame-ce
+pytesseract
+SpeechRecognition
+sounddevice
+numpy
+faster-whisper

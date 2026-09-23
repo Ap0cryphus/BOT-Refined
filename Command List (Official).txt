@@ -1,0 +1,272 @@
+KAEKAE BOT - OFFICIAL COMMAND LIST
+===================================
+
+REGULAR USERS
+-------------
+
+Bot triggers:
+!kk
+!KaeKae
+KaeKae
+
+Triggers are case-insensitive.
+
+General chat:
+Use a bot trigger followed by any question or message.
+
+Examples:
+!kk hello
+KaeKae how are you?
+
+User information:
+!kk who is USERNAME
+!kk info on USERNAME
+!kk info USERNAME
+
+The !kk who is USERNAME command sends the user's saved short biography,
+which is kept between 15 and 300 characters.
+
+The !kk info USERNAME and !kk info on USERNAME commands return a detailed,
+factual 25-300 word biography based on the user's profile fields, topics, saved
+quotes, full archived message history, messages captured through OCR and UI
+Automation, and identified microphone transcripts.
+
+Verbatim history:
+!verbatim USERNAME
+
+Uses only microphone transcripts. Sends the user's five most recent recorded
+microphone messages into the chat with username and timestamp, then adds a
+note telling the room to type y by itself for the next five older messages.
+Any user in the room can send y to continue the active session.
+
+All microphone history:
+!verbatimall
+
+Returns the five most recent microphone transcripts from everyone in recorded
+order, including username and timestamp. Type y for the next five older
+recordings.
+
+Speak verbatim history through Camfrog's Talk button:
+!verbatim -v USERNAME
+
+The -v form speaks each five-message batch through the Talk button instead of
+typing it into chat. The same y pagination applies. Speaker names are read
+from the Camfrog UI near the Talk/speaking indicator; if Camfrog does not
+expose a reliable label, the recording is stored as Unknown speaker.
+
+Microphone transcript records also keep the saved WAV clip path, full
+timestamp, whether the Talk control was found, and whether Camfrog exposed it
+as active. Identified speakers are added to their persistent user profile.
+
+Action history:
+Use a bot trigger with one of these words or phrases:
+kick
+block
+punish
+ban
+who kicked
+who blocked
+who punished
+who banned
+
+Action-history time filters:
+last minute
+last 5 minutes
+last 10 minutes
+last 15 minutes
+last 30 minutes
+last hour
+last 2 hours
+last 3 hours
+today
+
+
+AUTHORIZED USERS
+----------------
+
+Authorized usernames:
+dog3lived
+b3_dee
+dog
+$htickie
+
+When addressing any authorized user, the bot acknowledges them as:
+Pop, Father, or Creator
+
+Authorized commands must use a bot trigger first.
+
+Private profile corrections:
+!kk update USERNAME: correction
+!kk correct USERNAME: correction
+!kk add note for USERNAME: correction
+
+Only authorized users can create corrections. Corrections are saved privately
+in the user's profile and used as internal evidence for future replies and
+biographies. The bot does not acknowledge or announce the correction. A user's
+profile cannot be corrected if that user is also authorized.
+
+Return to normal temperament:
+calm
+!kk calm
+
+Only authorized users can use calm.
+
+Change tone:
+!kk tone funny
+!kk set tone funny
+!kk tone to sarcastic
+
+Speak to someone:
+!kk say USERNAME: message
+!kk tell USERNAME: message
+!kk say to USERNAME: message
+!kk tell to USERNAME: message
+
+Example:
+!kk say Church: hello
+
+Listening controls:
+!kk listening on
+!kk turn on listening
+!kk start listening
+
+!kk listening off
+!kk turn off listening
+!kk stop listening
+
+Transcription controls:
+!kk transcribing on
+!kk transcription on
+!kk turn on transcription
+
+!kk transcribing off
+!kk transcription off
+!kk turn off transcription
+
+Voice response controls:
+!kk voice on
+!kk turn on voice
+
+!kk voice off
+!kk turn off voice
+
+Repeat mode:
+!kk repeat on
+!kk turn on repeat
+
+!kk repeat off
+!kk turn off repeat
+
+Mute all bot responses:
+!shutup
+
+This stops text responses, voice responses, automatic reactions, and proactive
+responses. The bot remains running but stays silent.
+
+Voice behavior at startup:
+Listening is ON.
+Transcription is OFF.
+Voice responses are OFF.
+
+Startup response behavior:
+The bot sends this disclaimer:
+KaeKae is Alpha Testing, Debugging, and Updating Currently.
+After startup, the bot stays quiet unless directly triggered or asked to relay
+information through an authorized command.
+
+Global hotkeys:
+A + S + L toggles listening on or off.
+A + S + T toggles transcription on or off.
+
+When transcription is ON, recognized speech is sent to the chat.
+When transcription is OFF, the bot listens without responding to speech.
+
+
+VOICE TRIGGERS
+--------------
+
+Voice trigger words are no longer used for responses.
+The bot listens silently unless transcription or repeat mode is enabled.
+
+Previously recognized voice trigger words:
+kaekae
+kk
+
+Example:
+"kaekae what is happening?"
+
+
+AUTOMATIC TRIGGERS
+------------------
+
+The bot may automatically react when it sees:
+idiot
+noob
+dog
+bryan
+
+The bot no longer sends unsolicited ambient or proactive messages. The bot
+only responds after an explicit trigger or authorized relay command.
+
+Previously available PepeFrog proactive temperaments were:
+sarcastically witty
+aggressively angry
+condescending
+worry-free
+
+When a generated response mentions PepeFrog, the bot has a random chance to
+send this separate statement by itself:
+PepeFrog Pshh just a bunch of 1's and 0's incorrectly placed.
+
+
+AGGRESSIVE RESPONSE TRIGGERS
+----------------------------
+
+The bot becomes aggressive when people say:
+not a pepe
+not like pepe
+dogshit bot
+
+These phrases are treated as references to Dog or Bryan's bot and trigger a
+defensive response from KaeKae.
+
+Bot-directed condescending words also trigger aggressive mode, including:
+dumb
+stupid
+worthless
+temu
+idiot
+useless
+trash
+garbage
+moron
+
+The bot checks the last 30 responses and regenerates an answer when it is too
+similar to a recent response.
+
+
+USER PROFILES AND CHAT HISTORY
+-----------------------------
+
+The bot maintains compact profiles for users in bot_users.json, including
+first seen, last seen, message count, topics, and recent quotes. Each user can
+have up to 999 topics and 999 saved quotes.
+
+Every readable chat message is also appended to user_messages.jsonl with the
+username, timestamp, message text, and source. The UI reader and OCR reader
+share deduplication so the same message is not normally stored twice, including
+across restarts. Usernames are matched case-insensitively.
+
+When replying to a user, the bot uses their profile fields, topics, saved
+quotes, and archived message history. The complete history remains on disk;
+the prompt context is limited to a safe size so very large histories do not
+overwhelm the AI model.
+
+
+BOT SHUTDOWN
+------------
+
+Press all four keys together:
+A + S + D + F
+
+This stops and closes the bot.
