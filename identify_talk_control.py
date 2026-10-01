@@ -1,143 +1,158 @@
 ﻿# -*- coding: utf-8 -*-
-"""TALK CONTROL IDENTIFIER - finds Camfrog's real talk/mic control(s).
+"""TALK CONTROL IDENTIFIER - verifies where the Talk button really is.
 
-The grab code presses a CALIBRATED coordinate (camfrog_coords.json). If that
-value drifts, presses land on empty space and the grab silently fails. This tool
-inspects the live CEF/UIA tree, scores every candidate control, and can WRITE the
-winning coordinate back into camfrog_coords.json.
+Camfrog draws most of its controls as CANVAS with NO accessibility name: 82 of
+the 83 real Buttons in the room expose an empty name. So there is nothing to
+"find by name". This tool instead validates the calibrated coordinate against
+the live control tree and reports:
+
+  * whether the calibrated point still lands on a real Button
+  * its size, and the pixel drift from the calibrated centre
+  * nearby buttons, so a mis-calibration is obvious
 
 Usage:
     python identify_talk_control.py            # report only, changes nothing
-    python identify_talk_control.py --apply    # write the winner to coords
-    python identify_talk_control.py --top 10
+    python identify_talk_control.py --apply    # re-centre on the matched button
+    python identify_talk_control.py --radius 200
 """
 from __future__ import annotations
-import sys, json, argparse, os
+import sys, json, argparse
 
-TALK_WORDS = ("talk", "mic", "microphone", "push", "ptt", "transmit", "speak", "hold")
-MUTE_WORDS = ("mute", "unmute", "deafen", "speaker", "volume")
-DROP_WORDS = ("dropdown", "arrow", "menu", "more options", "settings", "gear",
-              "close", "minimize", "maximize", "help", "about", "chat", "send",
-              "smile", "emoticon", "avatar", "add friend", "invite")
+BTN_TYPES = {"Button", "CheckBox", "SplitButton", "ToggleButton"}
 
 
-def score(name: str, ctype: str) -> tuple:
-    low = (name or "").lower().strip()
-    if not low:
-        return (0, "unnamed")
-    if any(w in low for w in DROP_WORDS):
-        return (0, "excluded: dropdown/adjacent control")
-    for w in MUTE_WORDS:
-        if w in low:
-            return (0, f"excluded: mute/speaker word '{w}'")
-    hits = [w for w in TALK_WORDS if w in low]
-    if hits:
-        base = 60 + 10 * len(hits)
-        if ctype.lower() in ("button", "checkbox"):
-            base += 25
-        if ctype.lower() in ("group", "pane", "custom"):
-            base -= 15
-        return (base, f"talk words {hits}, type={ctype}")
-    return (0, "no talk keyword")
+def attach():
+    from pywinauto import Application
+    try:
+        import psutil
+        pids = [p.info["pid"] for p in psutil.process_iter(["pid", "name"])
+                if (p.info["name"] or "").lower() == "camfrog video chat.exe"]
+        for pid in pids:
+            try:
+                return Application(backend="uia").connect(process=pid), f"PID {pid}"
+            except Exception:
+                continue
+    except ImportError:
+        pass
+    for rx in ("(?i).*(Camfrog|Players__Lounge).*",):
+        try:
+            return Application(backend="uia").connect(title_re=rx), f"title {rx}"
+        except Exception:
+            continue
+    return None, None
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--apply", action="store_true", help="write winner into camfrog_coords.json")
-    ap.add_argument("--top", type=int, default=8)
+    ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--radius", type=int, default=140)
     args = ap.parse_args()
 
     try:
-        from pywinauto import Application
+        app, how = attach()
     except ImportError:
         print("pywinauto is required: pip install pywinauto")
         return 2
-
-    app = None
-    for kw in ({"process": None}, {"title_re": "(?i).*(Camfrog|Players__Lounge).*"}):
-        try:
-            if kw.get("process") is None:
-                app = Application(backend="uia").connect(title_re=kw["title_re"])
-            break
-        except Exception:
-            app = None
     if app is None:
-        try:
-            app = Application(backend="uia").connect(title_re="(?i).*Camfrog.*")
-        except Exception as e:
-            print(f"Could not attach to Camfrog: {e}")
-            print("Is Camfrog OPEN and not minimized?")
-            return 3
-
-    try:
-        win = app.top_window()
-    except Exception:
-        win = app.windows()[0]
-
-    try:
-        rect = win.rectangle()
-        print(f"Camfrog window: {rect.left},{rect.top} {rect.width()}x{rect.height()}")
-    except Exception:
-        rect = None
-
-    print("Scanning controls...\n")
-    rows = []
-    try:
-        for i, ctrl in enumerate(win.descendants(), 1):
-            try:
-                ctype = ctrl.element_info.control_type or "?"
-                name = (ctrl.element_info.name or "").strip()
-                r = ctrl.rectangle()
-            except Exception:
-                continue
-            s, why = score(name, ctype)
-            if s > 0:
-                rows.append((s, ctype, name, r, why))
-    except Exception as e:
-        print(f"Scan failed: {e}")
+        print("Could not attach to Camfrog.")
+        print("Is 'Camfrog Video Chat.exe' running and NOT minimized?")
         return 3
 
-    rows.sort(key=lambda t: -t[0])
-    if not rows:
-        print("NO talk-like control found in the accessibility tree.")
-        print("Camfrog's talk button may be canvas-drawn with no UIA name.")
-        print("Fallback: the calibrated coordinate in camfrog_coords.json is used.")
+    win = app.top_window()
+    wr = win.rectangle()
+    print(f"Attached via {how}")
+    print(f"Window: {wr.left},{wr.top}  {wr.width()}x{wr.height()}  "
+          f"title={win.window_text()[:50]!r}\n")
+
+    try:
+        coords = json.load(open("camfrog_coords.json", encoding="utf-8"))
+    except Exception:
+        coords = {}
+    tb = coords.get("talk_button") if isinstance(coords.get("talk_button"), dict) else {}
+    tx, ty = tb.get("x"), tb.get("y")
+    if not isinstance(tx, int) or not isinstance(ty, int):
+        tx, ty = 1480, 600
+        print("No calibrated talk_button found; using the built-in fallback (1480, 600).")
+    print(f"Calibrated talk_button: ({tx}, {ty})\n")
+
+    named = unnamed = near = 0
+    nearby = []
+    matched = None
+    best = None
+    for c in win.descendants():
+        try:
+            if (c.element_info.control_type or "") not in BTN_TYPES:
+                continue
+            r = c.rectangle()
+            if r.width() <= 0 or r.height() <= 0:
+                continue
+            name = (c.element_info.name or "").strip()
+            if name:
+                named += 1
+            else:
+                unnamed += 1
+            cx, cy = (r.left + r.right) // 2, (r.top + r.bottom) // 2
+            d = ((cx - tx) ** 2 + (cy - ty) ** 2) ** 0.5
+            if d <= args.radius:
+                nearby.append((d, r, name))
+            if d < 30 and (best is None or d < best[0]):
+                best = (d, r, name)
+        except Exception:
+            continue
+
+    print(f"Buttons with an accessible NAME : {named}")
+    print(f"Buttons WITHOUT any name        : {unnamed}")
+    if named == 0:
+        print("  -> Camfrog exposes no names; the calibrated coordinate is the")
+        print("     only reliable handle, and must be re-validated by geometry.\n")
+
+    if not nearby:
+        print(f"NO button within {args.radius}px of ({tx}, {ty}).")
+        print("The Talk button has almost certainly MOVED. Re-run calibrate_camfrog.py,")
+        print("or drag the window, then re-run this tool.")
         return 1
 
-    print(f"{'score':>5}  {'type':<10} {'name':<34} {'screen rect':<28} why")
-    print("-" * 108)
-    for s, ctype, name, r, why in rows[: args.top]:
-        rect_s = f"{r.left},{r.top} {r.width()}x{r.height()}"
-        print(f"{s:>5}  {ctype:<10} {name[:34]:<34} {rect_s:<28} {why}")
+    nearby.sort(key=lambda t: t[0])
+    print(f"\nButtons within {args.radius}px of the calibrated point:")
+    print(f"  {'dist':>5}  {'rect':<22} {'w x h':<9} name")
+    print("  " + "-" * 62)
+    for d, r, name in nearby[:8]:
+        print(f"  {d:5.0f}  {r.left},{r.top} {r.width()}x{r.height():<6} "
+              f"{(name[:22] if name else '(unnamed)')}")
 
-    best = rows[0]
-    _, _, bname, brect, _ = best
-    cx, cy = (brect.left + brect.right) // 2, (brect.top + brect.bottom) // 2
-    print(f"\nBEST: {bname!r} -> center ({cx}, {cy})")
+    matched = best
+    if matched is None:
+        print("\nNo button is within 30px of the calibrated point -> CALIBRATION IS STALE.")
+        d, r, name = nearby[0]
+        print(f"Closest is {d:.0f}px away at ({r.left},{r.top}) {r.width()}x{r.height()}.")
+        if args.apply:
+            cx, cy = (r.left + r.right) // 2, (r.top + r.bottom) // 2
+            coords["talk_button"] = {"x": int(cx), "y": int(cy)}
+            json.dump(coords, open("camfrog_coords.json", "w", encoding="utf-8"), indent=4)
+            print(f"APPLIED: talk_button -> ({int(cx)}, {int(cy)})")
+        else:
+            print("Re-run with --apply to re-centre on it.")
+        return 1
 
-    cur = {}
-    try:
-        cur = json.load(open("camfrog_coords.json", encoding="utf-8"))
-    except Exception:
-        pass
-    old = (cur.get("talk_button") or {}) if isinstance(cur.get("talk_button"), dict) else {}
-    print(f"CURRENT calibrated: ({old.get('x')}, {old.get('y')})")
-    if old.get("x") == cx and old.get("y") == cy:
-        print("MATCH: calibrated coordinates already point at the best control.")
+    d, r, name = matched
+    cx, cy = (r.left + r.right) // 2, (r.top + r.bottom) // 2
+    print(f"\nVALID: calibrated point sits on a real button.")
+    print(f"  button rect : {r.left},{r.top} {r.width()}x{r.height()}")
+    print(f"  its centre  : ({cx}, {cy})")
+    print(f"  drift       : {cx - tx:+d}, {cy - ty:+d} px  (distance {d:.0f}px)")
+    print(f"  name        : {name if name else '(unnamed - expected for Camfrog)'}")
+    print(f"  hit area    : {r.width() * r.height()} px^2")
+
+    if d <= 12:
+        print("\nVERDICT: calibration is GOOD - the press will land on this button.")
         return 0
-
-    drift = ""
-    if isinstance(old.get("x"), int):
-        drift = f"  (drift {cx - old['x']:+d},{cy - old['y']:+d} px)"
-    print(f"MISMATCH: calibrated coordinates are off.{drift}")
-
+    print("\nVERDICT: usable, but off-centre. A 12px+ drift risks missing the button.")
     if args.apply:
-        cur["talk_button"] = {"x": int(cx), "y": int(cy)}
-        with open("camfrog_coords.json", "w", encoding="utf-8") as f:
-            json.dump(cur, f, indent=4)
-        print(f"APPLIED: camfrog_coords.json talk_button -> ({int(cx)}, {int(cy)})")
+        coords["talk_button"] = {"x": int(cx), "y": int(cy)}
+        json.dump(coords, open("camfrog_coords.json", "w", encoding="utf-8"), indent=4)
+        print(f"APPLIED: talk_button -> ({int(cx)}, {int(cy)})")
     else:
-        print("Run with --apply to write this into camfrog_coords.json")
+        print("Re-run with --apply to re-centre on the true centre.")
     return 0
 
 
