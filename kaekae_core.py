@@ -35,6 +35,9 @@ STORE_DEDUPE_CLAIMS = "dedupe_claims.json"
 STORE_TALK_STATE = "talk_state.json"
 STORE_HEARTBEATS = "terminal_heartbeats.json"
 STORE_COMMAND_INBOX = "command_inbox.jsonl"
+STORE_BROADCAST_QUEUE = "broadcast_queue.json"
+STORE_CHAT_OUTBOX = "chat_outbox.jsonl"
+STORE_PAGINATION = "pagination.json"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "cef_chat_scan_interval_seconds": 0.25,
@@ -89,6 +92,13 @@ except ImportError:  # pragma: no cover - non Windows
 _THREAD_LOCKS: Dict[str, threading.RLock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
 
+# Lock paths currently held by THIS process. Windows _locking() refuses a second
+# lock on the same byte range from the same process, so a re-entrant acquisition
+# must be short-circuited instead of spinning until the timeout. Without this,
+# every locked_update() -> read_json() nesting would stall for the full timeout.
+_HELD_LOCKS: set = set()
+_HELD_LOCKS_GUARD = threading.Lock()
+
 
 def _thread_lock_for(key: str) -> threading.RLock:
     with _THREAD_LOCKS_GUARD:
@@ -110,10 +120,18 @@ class FileLock:
         self.lock_path = target.with_name(target.name + ".lock")
         self.timeout = timeout
         self._fd: Optional[int] = None
+        self._reentrant = False
         self._thread_lock = _thread_lock_for(str(self.lock_path))
 
     def __enter__(self) -> "FileLock":
         self._thread_lock.acquire()
+        key = str(self.lock_path)
+        with _HELD_LOCKS_GUARD:
+            if key in _HELD_LOCKS:
+                # Already held by this process - do not touch the OS lock again.
+                self._reentrant = True
+                return self
+            _HELD_LOCKS.add(key)
         _ensure_dir(self.lock_path)
         deadline = time.time() + self.timeout
         if msvcrt is None:
@@ -138,6 +156,12 @@ class FileLock:
                 time.sleep(0.02)
 
     def __exit__(self, exc_type, exc, tb) -> bool:
+        if self._reentrant:
+            try:
+                self._thread_lock.release()
+            except Exception:
+                pass
+            return False
         if self._fd is not None:
             try:
                 os.lseek(self._fd, 0, 0)
@@ -149,6 +173,8 @@ class FileLock:
             except Exception:
                 pass
             self._fd = None
+        with _HELD_LOCKS_GUARD:
+            _HELD_LOCKS.discard(str(self.lock_path))
         try:
             self._thread_lock.release()
         except Exception:
@@ -272,12 +298,13 @@ def save_config(updates: Dict[str, Any], announce: bool = True) -> bool:
 # ------------------------------------------------------------------------------
 # Telemetry - structured JSONL so behaviour can be analysed after a live run
 # ------------------------------------------------------------------------------
-def log_event(kind: str, **fields: Any) -> None:
+def log_event(event: str, **fields: Any) -> None:
+    """Appends a telemetry record to logs/<event>_<date>.jsonl."""
     try:
-        record = {"ts": datetime.now().isoformat(timespec="milliseconds"), "kind": kind}
+        record = {"ts": datetime.now().isoformat(timespec="milliseconds"), "kind": event}
         record.update(fields)
         LOGDIR.mkdir(exist_ok=True)
-        append_jsonl(f"logs/{kind}_{datetime.now().strftime('%Y%m%d')}.jsonl", record)
+        append_jsonl(f"logs/{event}_{datetime.now().strftime('%Y%m%d')}.jsonl", record)
     except Exception:
         pass
 
@@ -466,3 +493,113 @@ def drain_inbox_commands() -> list:
         except Exception:
             pass
     return drained
+
+
+# ------------------------------------------------------------------------------
+# Broadcast queue - T1/T3 enqueue speech tasks, T2 consumes them.
+# Separate from pending_speech_queue.json (which holds STT audio backlog
+# entries): the old single file mixed two schemas and one consumer's blind
+# pop(0) destroyed the other's entries.
+# ------------------------------------------------------------------------------
+def enqueue_broadcast(text: str, persona: str = "", voice: str = "",
+                      rate: str = "", pitch: str = "", source: str = "t1",
+                      requester: str = "") -> bool:
+    """Appends a speech task for Terminal 2 under the cross-process lock."""
+    task = {
+        "text": str(text),
+        "persona": persona,
+        "voice": voice,
+        "rate": rate,
+        "pitch": pitch,
+        "source": source,
+        "requester": requester,
+        "created_at": time.time(),
+        "ts": datetime.now().isoformat(timespec="seconds"),
+    }
+
+    def _mutator(data: Any) -> Dict[str, Any]:
+        items = data if isinstance(data, list) else []
+        items.append(task)
+        return items
+
+    ok = bool(locked_update(STORE_BROADCAST_QUEUE, _mutator, []))
+    if ok:
+        log_event("broadcast_enqueue", source=source, text=str(text)[:120], persona=persona)
+    return ok
+
+
+def pop_broadcast() -> Optional[Dict[str, Any]]:
+    """Pops the oldest speech task atomically. Returns None when empty."""
+    result: Dict[str, Any] = {}
+
+    def _mutator(data: Any) -> Any:
+        items = data if isinstance(data, list) else []
+        if not items:
+            return items
+        result.update(items.pop(0))
+        return items
+
+    locked_update(STORE_BROADCAST_QUEUE, _mutator, [])
+    return result or None
+
+
+def broadcast_queue_size() -> int:
+    items = read_json(STORE_BROADCAST_QUEUE, [])
+    return len(items) if isinstance(items, list) else 0
+
+
+# ------------------------------------------------------------------------------
+# Chat outbox - Terminal 2/3 hand chat lines to Terminal 1, which is the ONLY
+# process allowed to type into the Camfrog chat box (single writer rule).
+# ------------------------------------------------------------------------------
+def append_chat_outbox(text: str, override_mute: bool = False,
+                       source: str = "t2") -> bool:
+    ok = append_jsonl(STORE_CHAT_OUTBOX, {
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "source": source,
+        "override_mute": bool(override_mute),
+        "text": str(text),
+    })
+    if ok:
+        log_event("chat_outbox", source=source, text=str(text)[:120])
+    return ok
+
+
+def drain_chat_outbox() -> list:
+    """Terminal 1 reads and clears pending outbox lines atomically."""
+    path = p(STORE_CHAT_OUTBOX)
+    if not path.exists():
+        return []
+    drained: list = []
+    with FileLock(path):
+        try:
+            raw = path.read_text(encoding="utf-8")
+            if raw.strip():
+                for line in raw.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        drained.append(json.loads(line))
+                    except Exception:
+                        continue
+            path.write_text("", encoding="utf-8")
+        except Exception:
+            pass
+    return drained
+
+
+# ------------------------------------------------------------------------------
+# Shared !mo pagination state - lives on disk so a mic-triggered lookup that
+# paged from Terminal 2 can still be continued with !mo typed in Terminal 1.
+# ------------------------------------------------------------------------------
+def save_pagination(data: Optional[Dict[str, Any]]) -> None:
+    if data is None:
+        write_json_atomic(STORE_PAGINATION, {})
+    else:
+        write_json_atomic(STORE_PAGINATION, data)
+
+
+def load_pagination() -> Dict[str, Any]:
+    data = read_json(STORE_PAGINATION, {})
+    return data if isinstance(data, dict) else {}

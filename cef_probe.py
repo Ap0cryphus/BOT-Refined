@@ -49,6 +49,11 @@ VK_SPACE = 0x20
 MK_LBUTTON = 0x0001
 KEYEVENTF_KEYUP = 0x0002
 
+
+def lParam_of(pt) -> int:
+    """Packs a POINT into the LPARAM a WM_LBUTTONDOWN/UP message expects."""
+    return (int(pt.y) << 16) | (int(pt.x) & 0xFFFF)
+
 try:
     from pywinauto import Application
 except ImportError:
@@ -61,20 +66,52 @@ except ImportError:
 
 try:
     import pyautogui
-    import pytesseract
-    from PIL import Image, ImageOps, ImageEnhance
 except ImportError:
     pyautogui = None
-    pytesseract = None
-    Image = None
+
+try:
+    import kaekae_core as _core
+except Exception:
+    _core = None
 
 COORDS_FILE = "camfrog_coords.json"
 CONFIG_FILE = "config.json"
+
+# UI chrome / non-speaker labels. Deliberately does NOT contain KaeKae's own
+# names: the verifier MUST be able to see our own name as the active speaker,
+# which is the only proof that we actually won the microphone.
 IGNORED_NAMES = {
     "talk", "mute", "unmute", "push-to-talk", "hands-free", "unknown", "unknown speaker",
-    "kaekae", "kaekae_toad", "_noname_", "noname", "bible", "bibleverseswrist", "camfrog",
+    "_noname_", "noname", "camfrog",
     "admin", "operator", "broadcasting", "volume", "microphone", "audio", "video"
 }
+
+
+def _bot_display_names() -> list:
+    """Bot display names from config.json (bot_display_names)."""
+    if _core is not None:
+        try:
+            names = _core.load_config().get("bot_display_names") or []
+            if names:
+                return [str(n).strip().lower() for n in names if str(n).strip()]
+        except Exception:
+            pass
+    return ["kaekae", "kaekae_toad", "kaekaebot-camfrogaiassistant"]
+
+
+def is_bot_name(name: str) -> bool:
+    """True when `name` is one of KaeKae's own display names."""
+    if not name:
+        return False
+    low = str(name).strip().lower()
+    return any(b and (low == b or low in b or b in low) for b in _bot_display_names())
+
+
+def is_unknown_speaker(name: str) -> bool:
+    """True when the speaker label is absent or a UI label - NOT 'we are free'."""
+    if not name:
+        return True
+    return str(name).strip().lower() in IGNORED_NAMES
 
 class CamfrogCEFProbe:
     """
@@ -305,53 +342,6 @@ class CamfrogCEFProbe:
 
         return None
 
-    def query_speaker_micro_roi(self) -> Optional[str]:
-        """
-        Ultra-fast micro-ROI screen grab with pixel-hash change detection.
-        If pixels haven't changed since last frame, skips OCR entirely (0ms).
-        """
-        if not pyautogui or not pytesseract or not Image:
-            return None
-
-        reg_data = self.coords.get("active_speaker_ocr_region")
-        if not reg_data:
-            return None
-
-        try:
-            reg = (int(reg_data["left"]), int(reg_data["top"]), int(reg_data["width"]), int(reg_data["height"]))
-            shot = pyautogui.screenshot(region=reg)
-            
-            # Fast pixel change detection: if image bytes hash matches prior frame, return cached name
-            curr_bytes = shot.tobytes()
-            curr_hash = hash(curr_bytes)
-            if hasattr(self, "_last_roi_hash") and self._last_roi_hash == curr_hash:
-                return getattr(self, "_last_roi_name", None)
-
-            self._last_roi_hash = curr_hash
-            w, h = shot.size
-            upscaled = shot.resize((w * 3, h * 3), Image.BICUBIC if hasattr(Image, "BICUBIC") else Image.Resampling.BICUBIC)
-            gray = upscaled.convert("L")
-            if ImageEnhance:
-                gray = ImageEnhance.Contrast(gray).enhance(2.2)
-            if ImageOps:
-                stat = gray.histogram()
-                avg_b = sum(i * count for i, count in enumerate(stat)) / (w * h * 9)
-                if avg_b < 125:
-                    gray = ImageOps.invert(gray)
-
-            custom_config = r'--psm 7 -c tessedit_char_whitelist=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-$.'
-            raw = pytesseract.image_to_string(gray, config=custom_config).strip()
-            clean = re.sub(r'[^a-zA-Z0-9_\-\$]', '', raw)
-            if clean and len(clean) >= 2 and clean.lower() not in IGNORED_NAMES:
-                self._last_roi_name = clean
-                return clean
-            else:
-                self._last_roi_name = None
-        except Exception:
-            pass
-
-        return None
-
     def get_chat_messages(self, limit: int = 15) -> List[Dict[str, str]]:
         """
         Extracts recent chat messages directly from the CEF Chromium UIA DOM tree.
@@ -386,19 +376,14 @@ class CamfrogCEFProbe:
         return messages
 
     def sample_active_speaker_once(self) -> Optional[str]:
-        """Runs the prioritized detection pipeline (DevTools -> UIA -> Micro-ROI)."""
+        """Runs the CEF detection pipeline (DevTools -> UIA). No OCR/screenshots."""
         # 1. DevTools CDP
         name = self.query_speaker_devtools()
         if name and name.lower() not in IGNORED_NAMES:
             return name
 
-        # 2. CEF UIA Accessibility
+        # 2. CEF UIA Accessibility (this is the only real source now)
         name = self.query_speaker_uia()
-        if name and name.lower() not in IGNORED_NAMES:
-            return name
-
-        # 3. Micro-ROI Fallback
-        name = self.query_speaker_micro_roi()
         if name and name.lower() not in IGNORED_NAMES:
             return name
 
@@ -552,6 +537,12 @@ ELEVENLABS_VOICES = {
     "valley_sexy": "zqDzpaf3w8JdUBL9YxSv"    # Valley Sexy (Flirty, interested in males)
 }
 
+# Qwen3-TTS speakers available to the CustomVoice model
+QWEN_SPEAKERS = ["vivian", "serena", "uncle_fu", "ryan", "aiden",
+                 "ono_anna", "sohee", "eric", "dylan"]
+
+_QWEN_MODEL: Optional[Any] = None
+
 def get_elevenlabs_api_key() -> Optional[str]:
     """Retrieves ElevenLabs API key from environment or config.json."""
     key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
@@ -624,104 +615,147 @@ def synthesize_with_elevenlabs(
         print(f"[ELEVENLABS] Notice ({e}). Falling back to Expressive Neural SSML engine...")
         return False
 
+def _config() -> Dict[str, Any]:
+    if _core is not None:
+        try:
+            return _core.load_config()
+        except Exception:
+            return {}
+    return {}
+
+
+def synthesize_with_qwen(text: str, wav_path: str = "temp_say_broadcast.wav",
+                         speaker: str = "vivian",
+                         model_id: str = "") -> bool:
+    """
+    Local Qwen3-TTS CustomVoice synthesis (CPU). The model is cached in a module
+    singleton so Terminal 2 pays the ~4.5s load once, not per broadcast.
+    """
+    global _QWEN_MODEL
+    cfg = _config()
+    model_id = model_id or cfg.get("qwen_model_id", "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice")
+    speaker = speaker or cfg.get("qwen_speaker", "vivian")
+    try:
+        import numpy as np
+        import soundfile as sf
+        import torch
+        from qwen_tts import Qwen3TTSModel
+    except Exception as e:
+        print(f"[QWEN TTS] Unavailable ({type(e).__name__}: {e})")
+        return False
+
+    if _QWEN_MODEL is None:
+        try:
+            print(f"[QWEN TTS] Loading {model_id} (first use)...")
+            _QWEN_MODEL = Qwen3TTSModel.from_pretrained(
+                model_id, device_map="cpu", dtype=torch.float32)
+            print("[QWEN TTS] Model ready.")
+        except Exception as e:
+            print(f"[QWEN TTS] Load failed: {e}")
+            _QWEN_MODEL = None
+            return False
+
+    try:
+        wavs, sr = _QWEN_MODEL.generate_custom_voice(text=text, language="English", speaker=speaker)
+        audio = np.asarray(wavs[0], dtype="float32")
+        sf.write(wav_path, audio, sr)
+        print(f"[QWEN TTS] Synthesized '{speaker}' -> {wav_path} ({len(audio)/float(sr):.2f}s @ {sr}Hz)")
+        return True
+    except Exception as e:
+        print(f"[QWEN TTS] Synthesis failed: {e}")
+        return False
+
+
+def synthesize_with_edge(text: str, wav_path: str = "temp_say_broadcast.wav",
+                        voice: str = "en-US-AvaNeural", rate: str = "+12%",
+                        pitch: str = "+16Hz", persona: str = "valley") -> bool:
+    """Edge-TTS neural voice with persona-flavoured rate/pitch."""
+    import asyncio
+    try:
+        import edge_tts
+    except Exception as e:
+        print(f"[EDGE TTS] Unavailable ({e})")
+        return False
+    presets = {
+        "uppity": ("en-US-JennyNeural", "+10%", "+14Hz"),
+        "valley_sexy": ("en-US-AvaNeural", "+6%", "+10Hz"),
+        "valley": ("en-US-AvaNeural", "+12%", "+16Hz"),
+    }
+    v, r, p = presets.get((persona or "valley").lower(),
+                          (voice, rate, pitch))
+
+    async def _run():
+        comm = edge_tts.Communicate(text, v, rate=r, pitch=p)
+        await comm.save(wav_path)
+
+    try:
+        asyncio.run(_run())
+        return os.path.exists(wav_path) and os.path.getsize(wav_path) > 100
+    except Exception as e:
+        print(f"[EDGE TTS] Failed: {e}")
+        return False
+
+
+def synthesize_with_system(text: str, wav_path: str = "temp_say_broadcast.wav") -> bool:
+    """Windows System.Speech fallback (female/teen hint)."""
+    import subprocess
+    ps_cmd = (
+        "Add-Type -AssemblyName System.Speech; "
+        "$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+        "try { $synth.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Female, "
+        "[System.Speech.Synthesis.VoiceAge]::Teen) } catch {}; "
+        "$synth.Rate = 2; "
+        f"$synth.SetOutputToWaveFile('{os.path.abspath(wav_path)}'); "
+        f"$synth.Speak('{text}'); $synth.Dispose()"
+    )
+    try:
+        res = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+                             capture_output=True, timeout=20)
+        return res.returncode == 0 and os.path.exists(wav_path) and os.path.getsize(wav_path) > 100
+    except Exception as e:
+        print(f"[SYSTEM TTS] Failed: {e}")
+        return False
+
+
 def synthesize_speech_to_wav(
     text_to_say: str,
     wav_path: str = "temp_say_broadcast.wav",
-    voice: str = "en-US-AvaNeural",
-    rate: str = "+12%",
-    pitch: str = "+16Hz",
-    persona: str = "valley"
-) -> bool:
+    voice: Optional[str] = None,
+    rate: Optional[str] = None,
+    pitch: Optional[str] = None,
+    persona: Optional[str] = None
+) -> str:
     """
-    Guarantees generation of a 100% compliant, standard RIFF PCM 16-bit WAV file.
-    1. Checks for ElevenLabs API key and uses voice ID (Valley, Uppity, Valley Sexy).
-    2. Falls back to Edge-TTS Neural SSML with emotional styles (cheerful, excited, gentle).
-    3. Falls back to Windows System.Speech female/teen.
+    Explicit, config-driven engine selection. Returns the engine name that
+    produced the WAV ("qwen" / "elevenlabs" / "edge" / "system") or "" when every
+    engine failed. A synthetic tone is NEVER reported as speech.
     """
-    import subprocess
-    import shutil
-    import wave
-    import math
+    cfg = _config()
+    clean_text = str(text_to_say).replace('"', ' ').replace("'", " ")
+    voice = voice or cfg.get("voice", "en-US-AvaNeural")
+    rate = rate or cfg.get("voice_rate", "+12%")
+    pitch = pitch or cfg.get("voice_pitch", "+16Hz")
+    persona = (persona or cfg.get("elevenlabs_persona", "valley")).lower()
 
-    clean_text = text_to_say.replace('"', ' ').replace("'", " ")
+    preferred = str(cfg.get("engine", "edge")).lower()
+    order = [preferred] + [e for e in ("qwen", "elevenlabs", "edge", "system") if e != preferred]
 
-    # Method 1: ElevenLabs Hyper-Realistic Voice
-    if synthesize_with_elevenlabs(clean_text, persona=persona, wav_path=wav_path):
-        return True
+    for engine in order:
+        if engine == "qwen":
+            if synthesize_with_qwen(clean_text, wav_path, speaker=cfg.get("qwen_speaker", "vivian")):
+                return "qwen"
+        elif engine == "elevenlabs":
+            if synthesize_with_elevenlabs(clean_text, persona=persona, wav_path=wav_path):
+                return "elevenlabs"
+        elif engine == "edge":
+            if synthesize_with_edge(clean_text, wav_path, voice, rate, pitch, persona):
+                return "edge"
+        elif engine == "system":
+            if synthesize_with_system(clean_text, wav_path):
+                return "system"
 
-    # Method 2: Edge TTS Neural SSML with Emotional Style
-    try:
-        import edge_tts
-        import asyncio
-
-        # Map persona to edge_tts voice and expressive style
-        chosen_voice = voice
-        ssml_style = "cheerful"
-        if persona == "uppity":
-            chosen_voice = "en-US-JennyNeural"
-            ssml_style = "excited"
-            rate = "+10%"
-            pitch = "+14Hz"
-        elif persona == "valley_sexy":
-            chosen_voice = "en-US-AvaNeural"
-            ssml_style = "gentle"
-            rate = "+6%"
-            pitch = "+10Hz"
-        else:
-            chosen_voice = "en-US-AvaNeural"
-            ssml_style = "cheerful"
-            rate = "+12%"
-            pitch = "+16Hz"
-
-        communicate = edge_tts.Communicate(clean_text, chosen_voice, rate=rate, pitch=pitch)
-        asyncio.run(communicate.save(wav_path))
-        if os.path.exists(wav_path) and os.path.getsize(wav_path) > 100:
-            with open(wav_path, "rb") as f:
-                if f.read(4) == b"RIFF":
-                    return True
-    except Exception:
-        pass
-
-    # Method 3: Windows Built-in System.Speech (Female Teen / High-Pitch Fallback)
-    try:
-        ps_cmd = (
-            f"Add-Type -AssemblyName System.Speech; "
-            f"$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-            f"try {{ $synth.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Female, [System.Speech.Synthesis.VoiceAge]::Teen) }} catch {{}}; "
-            f"$synth.Rate = 2; "
-            f"$synth.SetOutputToWaveFile('{os.path.abspath(wav_path)}'); "
-            f"$synth.Speak('{clean_text}'); "
-            f"$synth.Dispose()"
-        )
-        res = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
-                             capture_output=True, timeout=12)
-        if res.returncode == 0 and os.path.exists(wav_path) and os.path.getsize(wav_path) > 100:
-            with open(wav_path, "rb") as f:
-                if f.read(4) == b"RIFF":
-                    return True
-    except Exception:
-        pass
-
-    # Method 4: Fallback sine tone so audio line is verified even without TTS
-    try:
-        sr = 48000
-        dur = 2.0
-        n_samples = int(sr * dur)
-        with wave.open(wav_path, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(sr)
-            frames = bytearray()
-            for i in range(n_samples):
-                t = i / sr
-                val = int(24000 * math.sin(2 * math.pi * 587.33 * t) * (1 - i / n_samples))
-                frames.extend(val.to_bytes(2, byteorder="little", signed=True))
-            wf.writeframes(frames)
-        return True
-    except Exception:
-        pass
-
-    return False
+    print("[TTS] Every configured engine failed; no audio produced.")
+    return ""
 
 def play_wav_to_virtual_cable(wav_path: str, target_name: Optional[str] = None) -> bool:
     """
@@ -866,6 +900,50 @@ class CamfrogCEFTalkController:
         self.coords: Dict[str, Any] = {}
         self._load_coordinates(force=True)
         self.lock = threading.RLock()
+        self._talk_mutex_handle: Optional[int] = None
+        self.last_broadcast: Dict[str, Any] = {}
+
+    # ------------------------------------------------------------------
+    # Cross-process talk ownership: a Windows named mutex so Terminal 1 and
+    # Terminal 2 can never hold the Camfrog talk button at the same time.
+    # ------------------------------------------------------------------
+    def _acquire_talk_mutex(self, timeout_s: float = 0.0) -> bool:
+        if not sys.platform.startswith("win"):
+            return True
+        if self._talk_mutex_handle:
+            return True
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            kernel32.CreateMutexW.restype = ctypes.c_void_p
+            handle = kernel32.CreateMutexW(None, False, "Global\\KaeKaeTalkLock")
+            if not handle:
+                return True  # cannot create -> do not block the feature
+            wait_ms = int(max(0.0, timeout_s) * 1000)
+            kernel32.WaitForSingleObject(ctypes.c_void_p(handle), wait_ms)
+            self._talk_mutex_handle = handle
+            if _core is not None:
+                _core.set_talk_state(self._terminal_id(), True, method="acquiring")
+            return True
+        except Exception:
+            return True
+
+    def _release_talk_mutex(self) -> None:
+        if not self._talk_mutex_handle:
+            return
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            kernel32.ReleaseMutex(ctypes.c_void_p(self._talk_mutex_handle))
+            kernel32.CloseHandle(ctypes.c_void_p(self._talk_mutex_handle))
+        except Exception:
+            pass
+        self._talk_mutex_handle = None
+        if _core is not None:
+            _core.set_talk_state(self._terminal_id(), False, method="none")
+
+    def _terminal_id(self) -> str:
+        return os.environ.get("KAEKAE_TERMINAL", "t2")
 
     def _load_coordinates(self, force: bool = False) -> Dict[str, Any]:
         """Auto-reloads coordinates from camfrog_coords.json if modified on disk."""
@@ -974,89 +1052,142 @@ class CamfrogCEFTalkController:
             result["attached"] = (self.talk_button_ctrl is not None or self.talk_button_rect is not None or self.main_hwnd is not None)
             return result
 
+    def mic_state(self) -> Dict[str, Any]:
+        """
+        Tri-state microphone truth, derived ONLY from the CEF/UIA speaker label:
+          free          - nobody visible on the mic (or the label is UI chrome)
+          busy          - a human name is holding the mic
+          held_by_bot   - KaeKae's own name is displayed (we hold it)
+          unconfirmable - the CEF window/speaker label could not be read at all
+        """
+        attached = bool(getattr(self.probe, "window_handle", None)) or \
+            bool(getattr(self.probe, "app_handle", None))
+        raw = self.probe.get_speaker() if self.probe else ""
+        if is_unknown_speaker(raw):
+            if not attached and not self.talk_button_rect:
+                return {"state": "unconfirmable", "speaker": raw or "", "is_free": False}
+            return {"state": "free", "speaker": "", "is_free": True}
+        if is_bot_name(raw):
+            return {"state": "held_by_bot", "speaker": raw, "is_free": False}
+        return {"state": "busy", "speaker": raw, "is_free": False}
+
     def is_mic_free(self) -> Tuple[bool, str]:
-        """Returns (is_free: bool, current_speaker: str). True if nobody else is on mic."""
-        spk = self.probe.get_speaker()
-        if spk and spk.lower() not in IGNORED_NAMES and spk.lower() not in {"kaekae", "kaekae_toad"}:
-            return False, spk
-        return True, ""
+        """Returns (is_free, current_speaker). Unknown is NOT treated as free."""
+        info = self.mic_state()
+        return (True, "") if info["state"] == "free" else (False, info["speaker"])
 
     def get_mic_battle_status(self, window_sec: float = 2.0) -> Dict[str, Any]:
         """
-        Detects whether a 'mic battle' (rapid flashing of competing names) is occurring,
-        or whether a speaker has a solid, stable lock on the microphone.
-        
-        Rules:
-        - When a mic battle is happening: names flash back-and-forth rapidly without settling.
-        - When a user truly wins the mic: their name is displayed stably next to the talk button
-          without other names interrupting for at least the stabilization threshold.
+        Detects a genuine mic battle as a rapid ALTERNATION of names, not merely
+        "two names seen inside the window" (two people talking one after the
+        other is not a battle). A battle needs >= 3 name changes while the
+        speaker slot keeps flipping, and no name that has settled.
         """
         now = time.time()
-        curr_spk = self.probe.get_speaker()
+        curr_spk = self.probe.get_speaker() if self.probe else ""
         history = getattr(self.probe, "speaker_history", [])
-        
-        # Filter recent samples within window_sec
-        recent_samples = [s for s in history if now - s.get("timestamp", 0) <= window_sec]
-        unique_speakers = list({
-            s.get("speaker") for s in recent_samples 
-            if s.get("speaker") and s.get("speaker").lower() not in IGNORED_NAMES
-        })
 
-        is_flashing = len(unique_speakers) >= 2
-        is_battling = is_flashing or (len(recent_samples) >= 4 and len(unique_speakers) > 1)
-        
-        # Check stability duration for current speaker
+        # Ordered samples inside the window, ignoring unknown/None gaps
+        samples = []
+        for s in history:
+            name = s.get("speaker")
+            if now - s.get("timestamp", 0) > window_sec:
+                continue
+            if is_unknown_speaker(name):
+                continue
+            samples.append((s.get("timestamp", 0), str(name)))
+
+        unique_speakers = []
+        for _, n in samples:
+            if n not in unique_speakers:
+                unique_speakers.append(n)
+
+        # Count actual flips in the speaker slot
+        changes = 0
+        for i in range(1, len(samples)):
+            if samples[i][1] != samples[i - 1][1]:
+                changes += 1
+        is_battling = changes >= 3 and len(unique_speakers) >= 2
+
+        # Stability duration of the CURRENT speaker
         stable_duration = 0.0
-        if curr_spk and curr_spk.lower() not in IGNORED_NAMES:
+        if curr_spk and not is_unknown_speaker(curr_spk):
             stable_duration = now - getattr(self.probe, "last_speaker_change", now)
 
         has_stable_winner = (
-            curr_spk and 
-            curr_spk.lower() not in IGNORED_NAMES and 
-            not is_battling and 
-            stable_duration >= 0.5
+            not is_unknown_speaker(curr_spk)
+            and not is_battling
+            and stable_duration >= 0.5
         )
+
+        info = self.mic_state()
+        is_free = (info["state"] == "free") and not is_battling
 
         return {
             "current_speaker": curr_spk,
             "is_battling": is_battling,
+            "name_changes": changes,
             "competing_speakers": unique_speakers,
             "stable_duration": round(stable_duration, 2),
             "has_stable_winner": has_stable_winner,
-            "is_free": (not curr_spk or curr_spk == "Unknown speaker") and not is_battling
+            "state": info["state"],
+            "held_by_bot": info["state"] == "held_by_bot",
+            "is_free": is_free,
         }
 
-    def verify_bot_won_mic(self, bot_names: Optional[List[str]] = None, timeout_sec: float = 1.8) -> bool:
+    def verify_bot_won_mic(self, bot_names: Optional[List[str]] = None,
+                           timeout_sec: Optional[float] = None) -> Dict[str, Any]:
         """
-        Verifies whether the bot truly won the mic battle:
-        1. Bot's name appears next to the talk button.
-        2. No competing names are flashing in for at least 0.4s.
+        Proves we actually own the microphone: KaeKae's own name must be the
+        speaker in the CEF/UIA label continuously for talk_stable_seconds
+        (default 1.0s). There is deliberately NO fallback that reports success
+        without seeing our name - if the name never shows, the grab failed.
+        Returns a structured verdict for the diagnostics panel.
         """
-        targets = [n.lower() for n in (bot_names or ["kaekae", "kaekae_toad"])]
+        if _core is not None:
+            cfg = _core.load_config()
+            stable_needed = float(cfg.get("talk_stable_seconds", 1.0))
+            if timeout_sec is None:
+                timeout_sec = float(cfg.get("talk_grab_timeout_s", 6.0))
+        else:
+            stable_needed = 1.0
+        if timeout_sec is None:
+            timeout_sec = 6.0
+
+        targets = [str(n).lower() for n in (bot_names or _bot_display_names())]
         start = time.time()
-        stable_start = 0.0
-        last_spk = ""
+        stable_start = None
+        observed = ""
+        samples = 0
 
         while time.time() - start < timeout_sec:
-            status = self.get_mic_battle_status(window_sec=1.5)
-            spk = (status.get("current_speaker") or "").lower()
-            
-            # If our name is showing and no competing names flashing
-            if any(t in spk for t in targets) and not status.get("is_battling"):
-                if spk != last_spk:
+            spk = self.probe.get_speaker() if self.probe else ""
+            if spk and not is_unknown_speaker(spk):
+                observed = str(spk)
+            samples += 1
+            if observed and is_bot_name(observed):
+                if stable_start is None:
                     stable_start = time.time()
-                    last_spk = spk
-                elif time.time() - stable_start >= 0.4:
-                    return True
+                held = time.time() - stable_start
+                if held >= stable_needed:
+                    return {
+                        "won": True,
+                        "observed_speaker": observed,
+                        "stability_seconds": round(held, 2),
+                        "required_seconds": stable_needed,
+                        "samples": samples,
+                    }
             else:
-                stable_start = 0.0
-                last_spk = spk
-            time.sleep(0.08)
+                stable_start = None
+            time.sleep(0.1)
 
-        # Fallback check: if no other human is on mic and talk button is actively held down
-        if self.is_holding and self.is_mic_free()[0]:
-            return True
-        return False
+        return {
+            "won": False,
+            "observed_speaker": observed or "",
+            "stability_seconds": round((time.time() - stable_start) if stable_start else 0.0, 2),
+            "required_seconds": stable_needed,
+            "samples": samples,
+        }
 
     def get_talk_coordinates(self) -> Tuple[int, int]:
         """Returns screen center coordinates (x, y) of Talk button."""
@@ -1107,6 +1238,192 @@ class CamfrogCEFTalkController:
                 pass
         time.sleep(0.05)
         return True
+
+    def _press_pattern(self, pattern: str) -> bool:
+        """Presses the talk button with one specific strategy. Idempotent press
+        patterns only - hands-free TOGGLING is intentionally excluded here."""
+        cx, cy = self.get_talk_coordinates()
+        self.catch_talk_process()
+
+        if pattern == "mouse_hold":
+            if not pyautogui:
+                return False
+            self.focus_camfrog()
+            pyautogui.moveTo(cx, cy, duration=0.05)
+            time.sleep(0.03)
+            pyautogui.mouseDown(cx, cy)
+            self.active_method = "mouse_hold"
+
+        elif pattern == "cef_hwnd":
+            if not (windll and self.cef_render_hwnd):
+                return False
+            pt = wintypes.POINT(cx, cy)
+            windll.user32.ScreenToClient(self.cef_render_hwnd, ctypes.byref(pt))
+            windll.user32.PostMessageW(self.cef_render_hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lParam_of(pt))
+            self.active_method = "cef_hwnd"
+
+        elif pattern == "uia":
+            if not self.talk_button_ctrl:
+                return False
+            self.focus_camfrog()
+            try:
+                self.talk_button_ctrl.invoke()
+            except Exception:
+                try:
+                    self.talk_button_ctrl.click_input()
+                except Exception:
+                    return False
+            self.active_method = "uia"
+
+        elif pattern == "f10":
+            if windll:
+                windll.user32.keybd_event(VK_F10, 0, 0, 0)
+                self.active_method = "f10"
+            elif pyautogui:
+                pyautogui.keyDown("f10")
+                self.active_method = "f10"
+            else:
+                return False
+        else:
+            return False
+
+        self.is_holding = True
+        self.grab_start_time = time.time()
+        return True
+
+    def _quick_release(self) -> None:
+        """Releases whatever press pattern is currently held (no verification)."""
+        cx, cy = self.get_talk_coordinates()
+        try:
+            if pyautogui:
+                pyautogui.mouseUp()
+        except Exception:
+            pass
+        try:
+            if windll and self.cef_render_hwnd:
+                pt = wintypes.POINT(cx, cy)
+                windll.user32.ScreenToClient(self.cef_render_hwnd, ctypes.byref(pt))
+                windll.user32.PostMessageW(self.cef_render_hwnd, WM_LBUTTONUP, 0,
+                                          lParam_of(pt))
+        except Exception:
+            pass
+        if self.active_method == "f10":
+            try:
+                if windll:
+                    windll.user32.keybd_event(VK_F10, 0, KEYEVENTF_KEYUP, 0)
+                elif pyautogui:
+                    pyautogui.keyUp("f10")
+            except Exception:
+                pass
+        self.is_holding = False
+
+    def acquire_talk(self, timeout_s: Optional[float] = None,
+                     stable_s: Optional[float] = None) -> Dict[str, Any]:
+        """
+        Rapidly re-presses the talk button - rotating press patterns with jitter -
+        until KaeKae's own name holds the room speaker slot for talk_stable_seconds.
+        A dispatched mouse-down is NEVER treated as success.
+
+        On timeout the mic is always released and a structured result is returned:
+        {ok, attempts, patterns, observed_speaker, stability_seconds, method}.
+        """
+        cfg = _core.load_config() if _core is not None else {}
+        if timeout_s is None:
+            timeout_s = float(cfg.get("talk_grab_timeout_s", 6.0))
+        if stable_s is None:
+            stable_s = float(cfg.get("talk_stable_seconds", 1.0))
+
+        patterns = ("mouse_hold", "cef_hwnd", "uia", "f10")
+        attempts = 0
+        used: List[str] = []
+        observed = ""
+        start = time.time()
+
+        self._acquire_talk_mutex(timeout_s=2.0)
+        if self.probe is not None and not getattr(self.probe, "running", False):
+            try:
+                self.probe.start_probe_daemon()
+            except Exception:
+                pass
+
+        while time.time() - start < timeout_s:
+            pattern = patterns[attempts % len(patterns)]
+            if attempts:
+                self._quick_release()
+                time.sleep(0.03)
+            try:
+                ok = self._press_pattern(pattern)
+            except Exception as e:
+                ok = False
+                if _core is not None:
+                    _core.log_event("talk", action="press_error", pattern=pattern, error=str(e))
+            attempts += 1
+            if ok:
+                used.append(pattern)
+
+            # Rapid re-press while waiting for our name to appear
+            press_deadline = time.time() + max(0.6, stable_s * 2.0)
+            stable_start = None
+            while time.time() < press_deadline and time.time() - start < timeout_s:
+                spk = self.probe.get_speaker() if self.probe else ""
+                if spk and not is_unknown_speaker(spk):
+                    observed = str(spk)
+                if observed and is_bot_name(observed):
+                    if stable_start is None:
+                        stable_start = time.time()
+                    elif time.time() - stable_start >= stable_s:
+                        verdict = {
+                            "ok": True,
+                            "attempts": attempts,
+                            "patterns": used,
+                            "method": self.active_method,
+                            "observed_speaker": observed,
+                            "stability_seconds": round(time.time() - stable_start, 2),
+                            "required_seconds": stable_s,
+                        }
+                        if _core is not None:
+                            _core.log_event("talk", action="acquired", **verdict)
+                            _core.set_talk_state(self._terminal_id(), True,
+                                                 method=self.active_method, observed=observed)
+                        print(f"[CEF TALK CONTROLLER] ACQUIRED after {attempts} press(es) "
+                              f"via {self.active_method}; '{observed}' stable "
+                              f"{verdict['stability_seconds']}s")
+                        return verdict
+                else:
+                    stable_start = None
+                time.sleep(0.1)
+
+            # Re-press harder while the current pattern is already held
+            if pyautogui and self.active_method == "mouse_hold":
+                cx, cy = self.get_talk_coordinates()
+                try:
+                    pyautogui.mouseDown(cx, cy)
+                    if windll and self.cef_render_hwnd:
+                        pt = wintypes.POINT(cx, cy)
+                        windll.user32.ScreenToClient(self.cef_render_hwnd, ctypes.byref(pt))
+                        windll.user32.PostMessageW(self.cef_render_hwnd, WM_LBUTTONDOWN,
+                                                  MK_LBUTTON, lParam_of(pt))
+                except Exception:
+                    pass
+            time.sleep(0.03 + 0.012 * (attempts % 5))  # 30-90ms jitter
+
+        failure = {
+            "ok": False,
+            "attempts": attempts,
+            "patterns": used,
+            "method": self.active_method,
+            "observed_speaker": observed,
+            "stability_seconds": 0.0,
+            "required_seconds": stable_s,
+            "reason": "timeout: KaeKae's name never held the speaker slot",
+        }
+        if _core is not None:
+            _core.log_event("talk", action="acquire_failed", **failure)
+        print(f"[CEF TALK CONTROLLER] ACQUIRE FAILED after {attempts} press(es). "
+              f"Last speaker seen: {observed or 'none'!r}. Releasing mic.")
+        self._quick_release()
+        self._release_talk_mutex()
+        return failure
 
     def grab_mic(self, mode: Optional[str] = None, force: bool = False) -> bool:
         """
@@ -1239,39 +1556,34 @@ class CamfrogCEFTalkController:
 
     def release_mic(self) -> bool:
         """
-        Releases the microphone immediately across all layers.
-        Guarantees that the bot never gets stuck holding the mic.
+        Releases the microphone across ALL layers unconditionally: OS mouse-up
+        (no-args so it works even if the cursor drifted), CEF WM_LBUTTONUP, the
+        F10 PTT key, and the named mutex. Hands-free is only clicked when that is
+        the method we actually used, because a stray click would engage it.
         """
         with self.lock:
             print("[CEF TALK CONTROLLER] Releasing microphone...")
             cx, cy = self.get_talk_coordinates()
 
-            # 1. Release physical mouse hold if active
-            if self.active_method in ("mouse_hold", "auto") or not self.active_method:
-                if pyautogui:
-                    try:
-                        pyautogui.mouseUp(cx, cy)
-                    except Exception:
-                        pass
-                if windll and self.cef_render_hwnd:
-                    try:
-                        pt = wintypes.POINT(cx, cy)
-                        windll.user32.ScreenToClient(self.cef_render_hwnd, ctypes.byref(pt))
-                        lParam = (pt.y << 16) | (pt.x & 0xFFFF)
-                        windll.user32.PostMessageW(self.cef_render_hwnd, WM_LBUTTONUP, 0, lParam)
-                    except Exception:
-                        pass
+            # 1. Always lift the physical mouse button (harmless if not held)
+            if pyautogui:
+                try:
+                    pyautogui.mouseUp()
+                except Exception:
+                    pass
 
-            # 2. If Hands-Free toggle was used, single click to turn off
-            elif self.active_method == "handsfree":
-                if pyautogui:
-                    try:
-                        pyautogui.click(cx, cy)
-                    except Exception:
-                        pass
+            # 2. Always tell the CEF renderer the button came up
+            if windll and self.cef_render_hwnd:
+                try:
+                    pt = wintypes.POINT(cx, cy)
+                    windll.user32.ScreenToClient(self.cef_render_hwnd, ctypes.byref(pt))
+                    windll.user32.PostMessageW(self.cef_render_hwnd, WM_LBUTTONUP, 0,
+                                               lParam_of(pt))
+                except Exception:
+                    pass
 
-            # 3. Release F10 hotkey if it was used
-            elif self.active_method == "f10":
+            # 3. Release the F10 PTT hotkey if it was used
+            if self.active_method == "f10":
                 if windll:
                     try:
                         windll.user32.keybd_event(VK_F10, 0, KEYEVENTF_KEYUP, 0)
@@ -1283,20 +1595,20 @@ class CamfrogCEFTalkController:
                     except Exception:
                         pass
 
-            # 4. Release CEF HWND mouse if cef_hwnd was used
-            elif self.active_method == "cef_hwnd":
-                if windll and self.cef_render_hwnd:
+            # 4. Turn OFF hands-free ONLY if we turned it on
+            elif self.active_method == "handsfree":
+                if pyautogui:
                     try:
-                        pt = wintypes.POINT(cx, cy)
-                        windll.user32.ScreenToClient(self.cef_render_hwnd, ctypes.byref(pt))
-                        lParam = (pt.y << 16) | (pt.x & 0xFFFF)
-                        windll.user32.PostMessageW(self.cef_render_hwnd, WM_LBUTTONUP, 0, lParam)
+                        pyautogui.click(cx, cy)
                     except Exception:
                         pass
 
             self.is_holding = False
             self.active_method = "none"
-            print("[CEF TALK CONTROLLER] Microphone successfully released. Mic is now free for room.")
+            self._release_talk_mutex()
+            if _core is not None:
+                _core.log_event("talk", action="released")
+            print("[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.")
             return True
 
     def speak_and_hold(
@@ -1307,96 +1619,205 @@ class CamfrogCEFTalkController:
         pitch: str = "+16Hz",
         max_wait_sec: float = 12.0,
         output_device: Optional[str] = None,
-        persona: str = "valley"
-    ) -> bool:
+        persona: str = "valley",
+        gate: bool = True
+    ) -> Dict[str, Any]:
         """
-        Complete end-to-end voice broadcast sequence:
-        1. Pre-synthesizes audio via ElevenLabs or Edge-TTS SSML.
-        2. Waits until mic is free (polling CEF probe).
-        3. Catches and grabs talk process with active hold.
-        4. Transmits audio to virtual mic input (VB-Audio CABLE Input).
-        5. Cleanly releases talk process upon completion.
+        End-to-end voice broadcast that reports the TRUTH:
+        1. Applies the one-hour repeat gate (bypassed for diagnostics).
+        2. Synthesizes audio first, so the mic is never held during synthesis.
+        3. Waits for the room to be free (CEF speaker label, not pixels).
+        4. acquire_talk(): rapid rotating re-presses until KaeKae's name holds
+           the speaker slot. A failed grab ABORTS the broadcast.
+        5. Plays into the VB-Cable input and reports the actual playback result.
+        6. Always releases in `finally`.
+
+        Returns a dict: {ok, acquired, playback_ok, engine, observed_speaker,
+                         stability_seconds, attempts, method, reason}.
         """
+        result: Dict[str, Any] = {
+            "ok": False, "acquired": False, "playback_ok": False, "engine": "",
+            "observed_speaker": "", "stability_seconds": 0.0,
+            "attempts": 0, "method": "none", "reason": "",
+        }
+
+        if gate and _core is not None and not _core.claim_or_suppress("reply", text_to_say):
+            result["reason"] = "suppressed: repeated within the one-hour window"
+            self.last_broadcast = result
+            print(f"[CEF TALK CONTROLLER] Gate: suppressed repeat: {text_to_say[:60]!r}")
+            return result
+
         temp_wav = "temp_say_broadcast.wav"
         speech_duration = max(2.0, len(text_to_say.split()) * 0.38)
         target_out = output_device or get_configured_output_device()
 
-        # 1. Synthesize audio first so we don't hold the mic during synthesis
-        synthesized = synthesize_speech_to_wav(
-            text_to_say,
-            temp_wav,
-            voice=voice,
-            rate=rate,
-            pitch=pitch,
-            persona=persona
+        # 1. Synthesize BEFORE taking the mic
+        engine = synthesize_speech_to_wav(
+            text_to_say, temp_wav, voice=voice, rate=rate, pitch=pitch, persona=persona
         )
-        if not synthesized:
-            print("[CEF TALK CONTROLLER] Warning: TTS generation failed; proceeding with audio line check...")
+        result["engine"] = engine if isinstance(engine, str) else ""
+        if not engine:
+            result["reason"] = "TTS synthesis failed - no audio to broadcast"
+            self.last_broadcast = result
+            print(f"[CEF TALK CONTROLLER] ABORT: {result['reason']}")
+            return result
 
-        # 2. Wait for talk button to be free (verifying no active speaker and no mic battle)
+        # 2. Wait for the room to be free
         start_wait = time.time()
         print(f"[CEF TALK CONTROLLER] Waiting for microphone availability for: \"{text_to_say}\"...")
         while time.time() - start_wait < max_wait_sec:
-            battle_info = self.get_mic_battle_status(window_sec=1.5)
-            if battle_info.get("is_free"):
-                print("[CEF TALK CONTROLLER] Mic detected FREE (No active speaker & no mic battle). Proceeding to grab...")
+            info = self.get_mic_battle_status(window_sec=1.5)
+            if info.get("is_free"):
+                print("[CEF TALK CONTROLLER] Mic is FREE. Proceeding to verified grab...")
                 break
-            elif battle_info.get("is_battling"):
-                competing = ", ".join(battle_info.get("competing_speakers", []))
-                print(f"[CEF TALK CONTROLLER] Mic battle in progress ({competing}). Waiting for battle to settle...")
+            if info.get("is_battling"):
+                print(f"[CEF TALK CONTROLLER] Mic battle in progress "
+                      f"({', '.join(info.get('competing_speakers', []))}). Waiting...")
+            elif info.get("held_by_bot"):
+                print("[CEF TALK CONTROLLER] Our own name is showing; re-grabbing to re-open the mic.")
+                break
+            elif info.get("state") == "unconfirmable":
+                print("[CEF TALK CONTROLLER] Speaker state UNCONFIRMABLE; attempting a verified grab anyway.")
+                break
             else:
-                spk = battle_info.get("current_speaker", "Someone")
-                print(f"[CEF TALK CONTROLLER] Mic occupied by '{spk}'. Waiting...")
+                print(f"[CEF TALK CONTROLLER] Mic occupied by '{info.get('current_speaker')}'. Waiting...")
             time.sleep(0.12)
 
-        # 3. Always attempt clean grab on the Talk button
-        grabbed = self.grab_mic()
-        if not grabbed:
-            print("[CEF TALK CONTROLLER] Notice: First grab attempt did not return confirmation. Re-focusing and retrying...")
-            self.focus_camfrog()
-            time.sleep(0.08)
-            grabbed = self.grab_mic(force=True)
+        # 3. Verified acquisition - rapid re-press until our name is shown
+        grab = self.acquire_talk()
+        result.update({
+            "acquired": bool(grab.get("ok")),
+            "attempts": grab.get("attempts", 0),
+            "method": grab.get("method", "none"),
+            "observed_speaker": grab.get("observed_speaker", ""),
+            "stability_seconds": grab.get("stability_seconds", 0.0),
+        })
+        if not result["acquired"]:
+            result["reason"] = grab.get("reason", "mic grab could not be verified")
+            self.last_broadcast = result
+            print(f"[CEF TALK CONTROLLER] ABORT: {result['reason']} - room never showed KaeKae as speaker.")
+            self.release_mic()
+            return result
 
-        # Verify whether bot successfully locked the microphone
-        won_mic = self.verify_bot_won_mic(timeout_sec=1.2)
-        if won_mic:
-            print("[CEF TALK CONTROLLER] WINNER CONFIRMED: Bot has locked the microphone cleanly without name flashing.")
-        else:
-            print("[CEF TALK CONTROLLER] Proceeding with broadcast into virtual cable stream...")
+        try:
+            # 4. Lead-in cushion for the Camfrog audio gate, then play
+            time.sleep(0.18)
+            played = play_wav_to_virtual_cable(temp_wav, target_out)
+            result["playback_ok"] = bool(played)
+            if not played:
+                result["reason"] = "playback failed on every output route"
+                print("[CEF TALK CONTROLLER] WARNING: playback failed on every output route.")
+                time.sleep(0.25)
+            else:
+                # 5. Trailing cushion so the last syllable is never clipped
+                time.sleep(0.25)
+            result["ok"] = result["acquired"] and result["playback_ok"]
+        except Exception as e:
+            result["reason"] = f"playback exception: {e}"
+            print(f"[CEF TALK CONTROLLER] Playback exception: {e}")
+        finally:
+            # 6. Always release, success or failure
+            self.release_mic()
 
-        # Small lead-in cushion (180ms) for Camfrog audio gate to open
-        time.sleep(0.18)
-
-        # 4. Play audio through Virtual Cable
-        played = play_wav_to_virtual_cable(temp_wav, target_out)
-        if not played:
-            time.sleep(speech_duration)
-
-        # 5. Trailing cushion (250ms) so final consonant/syllable is never clipped
-        time.sleep(0.25)
-
-        # 6. Release mic immediately
-        self.release_mic()
-        return True
+        self.last_broadcast = result
+        if _core is not None:
+            _core.log_event("broadcast", **result)
+        return result
 
 # Global singleton talk controller
 global_talk_controller = CamfrogCEFTalkController(global_probe)
 
 def save_cef_chat_speed(interval_sec: float) -> bool:
-    """Persists CEF chat scanning speed interval to config.json."""
+    """Persists CEF chat scanning speed interval to config.json (atomic, locked)."""
     try:
-        data = {}
-        if os.path.exists("config.json"):
-            with open("config.json", "r", encoding="utf-8") as f:
-                data = json.load(f)
-        data["cef_chat_scan_interval_seconds"] = round(float(interval_sec), 3)
-        with open("config.json", "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        print(f"[CONFIG] Saved cef_chat_scan_interval_seconds = {interval_sec}s to config.json successfully.")
+        if _core is not None:
+            _core.save_config({"cef_chat_scan_interval_seconds": round(float(interval_sec), 3)})
+        else:
+            data = {}
+            if os.path.exists("config.json"):
+                with open("config.json", "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            data["cef_chat_scan_interval_seconds"] = round(float(interval_sec), 3)
+            with open("config.json", "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        print(f"[CONFIG] Saved cef_chat_scan_interval_seconds = {interval_sec}s to config.json.")
         return True
     except Exception as e:
         print(f"[CONFIG ERROR] Could not save setting: {e}")
         return False
+
+
+def _voice_summary() -> str:
+    """One-line summary of the currently persisted voice configuration."""
+    cfg = _config()
+    engine = cfg.get("engine", "edge")
+    if engine == "qwen":
+        detail = f"speaker={cfg.get('qwen_speaker', 'vivian')}"
+    elif engine == "elevenlabs":
+        detail = f"persona={cfg.get('elevenlabs_persona', 'valley')}"
+    else:
+        detail = f"voice={cfg.get('voice', 'en-US-AvaNeural')}"
+    return f"{engine} ({detail})"
+
+
+def voice_persona_menu() -> None:
+    """
+    Interactive voice/engine picker. Everything chosen here is PERSISTED to
+    config.json, so Terminal 1 (!say, !diss), Terminal 2 (queued speech) and
+    Terminal 3 (HUD) all use the same voice afterwards.
+    """
+    cfg = _config()
+    print("\n" + "=" * 76)
+    print("  VOICE & ENGINE SELECTOR  (saved to config.json - applies everywhere)")
+    print("=" * 76)
+    print(f"  Current : engine={cfg.get('engine', 'edge')}  "
+          f"qwen_speaker={cfg.get('qwen_speaker', 'vivian')}  "
+          f"persona={cfg.get('elevenlabs_persona', 'valley')}")
+
+    has_el = bool(cfg.get("elevenlabs_api_key") or os.environ.get("ELEVENLABS_API_KEY"))
+    print("\n  [1] Engine  : qwen            (local Qwen3-TTS CustomVoice, CPU)")
+    print("  [2] Engine  : elevenlabs      " + ("(API key configured)" if has_el
+                                                else "(NO API KEY - will fall back)"))
+    print("  [3] Engine  : edge            (Edge neural TTS)")
+    print("  [4] Engine  : system          (Windows SAPI, fastest/robotic)")
+    print("\n  [5] Qwen speaker : " + ", ".join(QWEN_SPEAKERS))
+    print("  [6] ElevenLabs persona : valley, uppity, valley_sexy")
+    print("  [7] ElevenLabs API key : " + ("(key already set)" if has_el else "(not set)"))
+    print("  [8] Test the currently saved voice (synth only, no mic)")
+    print("  [0] Back")
+
+    try:
+        choice = input("\nEnter choice [0-8]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\nCancelled.")
+        return
+
+    engines = {"1": "qwen", "2": "elevenlabs", "3": "edge", "4": "system"}
+    if choice in engines:
+        _core.save_config({"engine": engines[choice]})
+        print(f"[VOICE] Engine saved: {engines[choice]}")
+    elif choice == "5":
+        spk = input(f"Speaker [{', '.join(QWEN_SPEAKERS)}]: ").strip().lower()
+        if spk:
+            _core.save_config({"qwen_speaker": spk})
+            print(f"[VOICE] Qwen speaker saved: {spk}")
+    elif choice == "6":
+        per = input("Persona [valley, uppity, valley_sexy]: ").strip().lower()
+        if per:
+            _core.save_config({"elevenlabs_persona": per})
+            print(f"[VOICE] Persona saved: {per}")
+    elif choice == "7":
+        key = input("Paste ElevenLabs API key (blank to clear): ").strip()
+        _core.save_config({"elevenlabs_api_key": key})
+        print("[VOICE] API key saved.")
+    elif choice == "8":
+        phrase = input("Test phrase: ").strip() or "KaeKae voice test."
+        wav = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice_test.wav")
+        t0 = time.time()
+        engine = synthesize_speech_to_wav(phrase, wav)
+        print(f"[VOICE] Test finished in {time.time() - t0:.2f}s -> "
+              f"engine={engine or 'FAILED'} file={wav if engine else 'none'}")
+    print(f"[VOICE] Now active: {_voice_summary()}")
 
 def run_diagnostic():
     """
@@ -1446,9 +1867,14 @@ def run_diagnostic():
         print("=" * 76)
         print(f"Phrase to speak : \"{voice_phrase}\"")
         print(f"Routing to      : {out_dev}")
-        print("Starting talk sequence (Synthesizing -> Grabbing Mic -> Playing -> Releasing)...")
-        success = talk_ctrl.speak_and_hold(voice_phrase)
-        print(f"\nBroadcast result: {'SUCCESS' if success else 'FAILED'}")
+        print("Starting talk sequence (Synthesize -> Verified Grab -> Play -> Release)...")
+        success = talk_ctrl.speak_and_hold(voice_phrase, gate=False)
+        ok = success.get("ok") if isinstance(success, dict) else bool(success)
+        print(f"\nBroadcast result: {'SUCCESS' if ok else 'FAILED'}")
+        if isinstance(success, dict):
+            print(f"  acquired={success.get('acquired')} playback={success.get('playback_ok')} "
+                  f"engine={success.get('engine')} speaker={success.get('observed_speaker')!r} "
+                  f"attempts={success.get('attempts')} reason={success.get('reason')!r}")
         return
 
     # Main Interactive Diagnostic Menu
@@ -1483,21 +1909,29 @@ def run_diagnostic():
         stable_dur = b_status.get("stable_duration", 0.0)
 
         if is_free:
-            mic_state_str = "🟢 FREE & READY (Microphone is completely open)"
+            mic_state_str = "🟢 FREE & READY (no one on the mic)"
         elif is_battling:
             competing = ", ".join(b_status.get("competing_speakers", []))
-            mic_state_str = f"⚠️ MIC BATTLE IN PROGRESS (Names flashing rapidly: {competing})"
+            mic_state_str = (f"⚠️ MIC BATTLE IN PROGRESS (names flipping rapidly: {competing}; "
+                             f"{b_status.get('name_changes', 0)} changes)")
+        elif b_status.get("held_by_bot"):
+            mic_state_str = f"🔴 HELD BY KAEKAE (our name is the speaker, stable {stable_dur}s)"
+        elif b_status.get("state") == "unconfirmable":
+            mic_state_str = "⚪ UNCONFIRMABLE (Camfrog/CEF speaker label not readable)"
         else:
-            mic_state_str = f"🔴 OCCUPIED by '{spk}' (Stable for {stable_dur}s)"
+            mic_state_str = f"🔴 OCCUPIED by '{spk}' (stable {stable_dur}s)"
 
         print(f"  LIVE MIC STATUS: {mic_state_str}")
+        print(f"  VOICE ENGINE   : {_voice_summary()}")
+        print(f"  TALK STATE     : {_core.get_talk_state() if _core is not None else 'n/a'}")
         print("=" * 78)
         print("  [1] Live Monitor: Watch Mic Availability & Detect Mic Battles in Real-Time")
-        print("  [2] Test Initial Mic Grab & Verify Winner Lock (3 Seconds)")
+        print("  [2] Test Verified Mic Grab (rapid re-press until KaeKae's name holds 1s)")
         print("  [3] Test Voice Broadcast via TTS with Lock Confirmation")
         print("  [4] Accelerate CEF Chat Pulling Speed & Persist Setting (e.g. 0.15s, 0.25s, 0.5s)")
         print("  [5] Recalibrate Stage & Talk Coordinates (calibrate_camfrog.py)")
         print("  [6] Launch Full KaeKae Bot (All 3 Terminals: Chat, Audio & HUD)")
+        print("  [7] Voice / Engine / Persona Picker (persists to config.json)")
         print("  [0] Exit Diagnostics")
         print("=" * 78)
 
@@ -1535,26 +1969,31 @@ def run_diagnostic():
                 print("\nReturning to menu...")
 
         elif choice == "2":
-            print("\nTesting Initial Mic Grab & Winner Lock...")
+            print("\n--- VERIFIED MIC GRAB TEST ---")
             b_info = talk_ctrl.get_mic_battle_status(window_sec=1.5)
-            if not b_info.get("is_free"):
-                print(f"Notice: Mic currently shows occupied by '{b_info.get('current_speaker')}'. Attempting contested grab...")
-            
-            # Reset any lingering hold and perform clean grab
-            talk_ctrl.focus_camfrog()
-            time.sleep(0.05)
-            grabbed = talk_ctrl.grab_mic(force=True)
-            print(f"Grab execution result: {'Grabbed' if grabbed else 'Failed'}")
-            print("Checking if bot successfully won the mic battle (verifying name stability)...")
-            won = talk_ctrl.verify_bot_won_mic(timeout_sec=1.5)
-            if won:
-                print("🎯 SUCCESS: Bot won the mic battle! Name stably displayed next to talk button.")
+            if b_info.get("state") != "free":
+                print(f"Room currently shows: {b_info.get('state')} "
+                      f"({b_info.get('current_speaker') or 'no readable name'}). "
+                      "Attempting a contested grab anyway...")
+            print("Rapidly re-pressing the Talk button (rotating patterns) until "
+                  "KaeKae's name holds the speaker slot...")
+            grab = talk_ctrl.acquire_talk()
+            print("\n--- GRAB DIAGNOSTIC ---")
+            print(f"  attempts          : {grab.get('attempts')}")
+            print(f"  press patterns    : {grab.get('patterns')}")
+            print(f"  winning method    : {grab.get('method')}")
+            print(f"  observed speaker  : {grab.get('observed_speaker') or '<never shown>'}")
+            print(f"  name stability    : {grab.get('stability_seconds')}s "
+                  f"(required {grab.get('required_seconds')}s)")
+            if grab.get("ok"):
+                print("  OUTCOME           : ✅ CONFIRMED - KaeKae is the room speaker.")
+                for s in range(3, 0, -1):
+                    print(f"  Holding verified mic... releasing in {s}s")
+                    time.sleep(1.0)
             else:
-                print("⚠️ NOTICE: Mic held, but room speaker battle or local state didn't confirm clean name display.")
-            
-            for s in range(3, 0, -1):
-                print(f"  Holding mic... releasing in {s}s")
-                time.sleep(1.0)
+                print(f"  OUTCOME           : ❌ FAILED - {grab.get('reason')}")
+                print("                    The mic was released automatically; the room "
+                      "never displayed KaeKae as the speaker.")
             talk_ctrl.release_mic()
             print("Microphone released cleanly.\n")
             time.sleep(1.2)
@@ -1564,8 +2003,16 @@ def run_diagnostic():
             if not phrase:
                 phrase = "KaeKae bot testing microphone lock and broadcast."
             print(f"\nBroadcasting: \"{phrase}\"...")
-            talk_ctrl.speak_and_hold(phrase)
+            res = talk_ctrl.speak_and_hold(phrase, gate=False)
+            print("--- BROADCAST RESULT ---")
+            for k in ("ok", "acquired", "playback_ok", "engine", "observed_speaker",
+                      "stability_seconds", "attempts", "method", "reason"):
+                print(f"  {k:<18}: {res.get(k)}")
             time.sleep(1.2)
+
+        elif choice == "7":
+            voice_persona_menu()
+            time.sleep(0.8)
 
         elif choice == "4":
             print(f"\nCurrent CEF chat scan interval: {cur_interval}s")

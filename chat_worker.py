@@ -3,10 +3,11 @@
 KAEKAE CHAT WORKER (TERMINAL 1: TEXT & CHAT ENGINE)
 ================================================================================
 Dedicated strictly to chat operations:
-- OCR & CEF direct chat message capture
-- Room moderation & user command processing (!info, !who, !seen, !profile, !diss)
-- Creator commands (!say, !diss, !chill)
-- When speech is requested, pushes cleanly into pending_speech_queue.json for Terminal 2!
+- Captures chat straight from the CEF/Chromium DOM (no OCR, no screenshots)
+- Claims every captured message once (durable dedupe, survives restarts)
+- Runs all room moderation + user commands (!info, !who, !diss, ...)
+- Creator commands (!say, !diss, !chill) - !say is queued for Terminal 2
+- Consumes chat_outbox.jsonl so Terminal 2/3 speak through this one writer
 ================================================================================
 """
 
@@ -27,16 +28,18 @@ if sys.platform == "win32":
 print("=" * 76)
 print("  KAEKAE CHAT WORKER (TERMINAL 1: TEXT & CHAT ENGINE)")
 print("=" * 76)
-print("  Status      : Starting OCR & Chat Monitor...")
-print("  Integration : Pushes !say and voice requests to pending_speech_queue.json")
-print("  Audio Worker: Terminal 2 handles physical mic lock & virtual cable audio")
+print("  Status      : Starting CEF chat monitor (no OCR)...")
+print("  Chat writes : DIRECT (this terminal types into the Camfrog chat box)")
+print("  Audio Worker: Terminal 2 handles mic capture, STT and the talk button")
 print("=" * 76 + "\n")
 
-# Re-use core chat engine from kaekae_bot with audio recording disabled in this terminal
+# Re-use the core chat engine from kaekae_bot, with microphone recording OFF in
+# this process (Terminal 2 owns the audio device) and chat writes ON (we are the
+# single chat writer).
 import kaekae_bot
 
-# In chat worker, disable microphone recording so sounddevice doesn't touch this process
 kaekae_bot.AUDIO_RECORD_ENABLED = False
+kaekae_bot.CHAT_SEND_MODE = "direct"
 
 if __name__ == "__main__":
     try:

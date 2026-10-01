@@ -1,6 +1,7 @@
 ======================================================================
  KAEKAE BOT - MASTER TRIGGERS & COMMAND LIST
 ======================================================================
+ (Truth-checked against the live handlers in kaekae_bot.py)
 
 [Audio & Listening Controls]
   !listen              - Turn microphone listening ON
@@ -14,11 +15,20 @@
   !chat                - Turn chatty mode ON (KaeKae mingles in chat)
   !chat off            - Turn chatty mode OFF (Quiet in room)
   !calm                - Return KaeKae to normal, chill temperament
-  !tone funny          - Set KaeKae tone to funny (Only allowed)
-  !tone happy          - Set KaeKae tone to happy (Only allowed)
+  !chill               - Stop diss mode and restore chill temperament
+  !tone <tone>         - Set tone. Tones: angry, terminator, proud, sad,
+                         funny, happy, savage, chill, normal
   !diss [username]     - Aggressively witty roast of target or random user
+  !shutup              - Mute all spontaneous chat replies
+
+[Microphone / Talk Control]
+  !grab [seconds]      - Hold the Talk button (default 5s, max 30s)
+  !release             - Release the Talk button immediately
+  !talkstatus          - Report who holds the mic and the current mode
+  !reloadcoords        - Reload chat/talk coordinates from camfrog_coords.json
 
 [User Intelligence & Lookups]
+  !who                 - List users currently in the room
   who is <username>    - Detailed narrative biography from audio & text files
   info on <username>   - Statistical summary (msg count, mic airtime, dates, tone)
 
@@ -36,6 +46,7 @@
   !verbatimall         - Send 5 most recent mic transcripts from everyone
   !recall "phrase"     - Search mic speech archives with exact/AND matching
   !idk <question>      - Ask anything (Web Search + Memory + Room context)
+  !grabs / !micstats   - 5-minute mic grab history per user
   !mo                  - Page through next chunk of search/verbatim results
 
 [Voice Triggers (Spoken on Mic)]
@@ -43,10 +54,28 @@
   -> Random non-repeating replies:
      "What's up, Doc" | "What you need, homie?" | "Why do I keep hearing my name being called?"
 
+[Help]
+  !triggers / !help    - Print this command list in chat
+
 [Authorized Creator Only]
-  !say "message"       - Have KaeKae speak/type message in her own tone
+  !say "message"       - Queue a spoken broadcast on the room mic
+
+----------------------------------------------------------------------
+ DUPLICATE & REPEAT PROTECTION (new)
+----------------------------------------------------------------------
+  * Every captured chat message is claimed ONCE in dedupe_claims.json,
+    keyed on room + sender + text (NO timestamp), BEFORE it is recorded
+    or dispatched. A message left sitting on screen cannot fire twice,
+    and that survives a restart.
+  * Replies (chat text AND mic speech) are checked against
+    outbound_gate.json: KaeKae will not repeat content it already sent
+    within the past hour (dup_reply_seconds = 3600).
+  * Timestamped control confirmations (e.g. "Listening is ON.") always
+    get through, so commands always answer you.
+  * Control commands are idempotent - repeating !transcribe / !listen when
+    already in that state does not re-announce.
+
 ======================================================================
+ PATH
 
-PATH
-
-C:\Users\newbe\AppData\Local\Programs\Python\Python311\python.exe
+ C:\Users\newbe\AppData\Local\Programs\Python\Python311\python.exe

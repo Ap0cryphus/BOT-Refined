@@ -40,11 +40,9 @@ from difflib import SequenceMatcher
 from typing import Dict, List, Optional, Tuple, Set, Any
 
 try:
-    from PIL import Image, ImageOps, ImageEnhance
+    from PIL import Image
 except ImportError:
     Image = None
-    ImageOps = None
-    ImageEnhance = None
 
 # Windows & Automation libraries
 try:
@@ -59,11 +57,6 @@ try:
     import requests
 except ImportError:
     requests = None
-
-try:
-    import pytesseract
-except ImportError:
-    pytesseract = None
 
 # Speech & Audio libraries
 try:
@@ -246,9 +239,6 @@ if os.path.exists("config.json"):
 # Chat Limits & Timings
 MAX_MSG_LENGTH = 400  # Camfrog strictly enforces 400 chars per message
 CEF_CHAT_SCAN_INTERVAL = 0.25  # Fast 250ms direct CEF Chromium chat pulling (accelerated)
-OCR_MIN_INTERVAL = 1.0     # Fast 1.0s hybrid OCR scans for instant command reaction
-OCR_MAX_INTERVAL = 2.0    # Maximum interval during low activity
-OCR_PAUSE_DURATION = 0   # No pausing after commands; keep hybrid OCR alert
 LOG_WINDOW_HOURS = 72
 MAX_PROFILE_ITEMS = 999
 MAX_USER_CONTEXT_CHARS = 10000
@@ -265,16 +255,44 @@ VOICE_WAKE_RESPONSES = [
     "Like, totally KaeKae here! What is your deal?"
 ]
 
-# Storage Files
-USERS_FILE = "bot_users.json"
-USER_MESSAGES_FILE = "user_messages.jsonl"
-AUDIO_TRANSCRIPTS_FILE = "audio_transcripts.jsonl"
-PENDING_SPEECH_FILE = "pending_speech_queue.json"
-MODERATION_AUDIT_FILE = "moderation_audit.json"
-KICK_FILE = "bot_kicks.json"
-MEMORY_FILE = "bot_memory.json"
-CONFIG_FILE = "config.json"
-STATE_FILE = "bot_state.json"
+# kaekae_core replaced relative-path constants + config/state accessors.
+try:
+    import kaekae_core as _core
+except Exception:
+    _core = None
+
+# Chat send mode: "direct" types into Camfrog (Terminal 1 only);
+# "outbox" hands lines to Terminal 1 via chat_outbox.jsonl (Terminal 2/3).
+CHAT_SEND_MODE = "direct"
+
+# Microphone capture in THIS process. Terminal 2 (audio_worker) owns it; the chat
+# worker sets this to False so sounddevice is never opened twice.
+AUDIO_RECORD_ENABLED = True
+
+# kaekae_core anchors paths; the module-level aliases below remain for compat.
+def _project_path(name: str) -> str:
+    if _core is not None:
+        try:
+            return str(_core.p(name))
+        except Exception:
+            pass
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+
+
+def _legacy_path(name: str) -> str:
+    """Absolute fallback resolved next to kaekae_bot.py when kaekae_core fails."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+
+
+USERS_FILE = _project_path("bot_users.json")
+USER_MESSAGES_FILE = _project_path("user_messages.jsonl")
+AUDIO_TRANSCRIPTS_FILE = _project_path("audio_transcripts.jsonl")
+PENDING_SPEECH_FILE = _project_path("pending_speech_queue.json")
+MODERATION_AUDIT_FILE = _project_path("moderation_audit.json")
+KICK_FILE = _project_path("bot_kicks.json")
+MEMORY_FILE = _project_path("bot_memory.json")
+CONFIG_FILE = _project_path("config.json")
+STATE_FILE = _project_path("bot_state.json")
 
 # Startup Disclaimer
 STARTUP_DISCLAIMER = "KaeKae is Alpha Testing, Debugging, and Updating Currently."
@@ -293,7 +311,6 @@ class BotState:
         
         # Operational Mode Flags
         self.listening_enabled = True      # Startup: ON (!listen / !mute)
-        self.watching_ocr_enabled = True   # Startup: ON
         self.transcribe_enabled = True     # Startup: ON (!transcribe / !transcribed)
         self.voice_enabled = False         # Startup: OFF
         self.chatty_mode = False           # Startup: OFF (!chat / !chat off)
@@ -303,9 +320,6 @@ class BotState:
         self.bot_tone = "normal"           # normal, funny, happy, aggressive, roast
         self.last_voice_response_time = 0.0
         self.last_voice_wake_reply = ""    # Ensures no repeated wake replies back-to-back
-        self.last_ocr_time = 0.0
-        self.ocr_paused_until = 0.0
-        self.ocr_current_interval = OCR_MIN_INTERVAL
         self.last_moderation_time = 0.0
         self.last_repeat_time = 0.0
         self.last_chatty_time = 0.0
@@ -330,10 +344,7 @@ class BotState:
         self.seen_message_signatures: Set[str] = set()
         self.history_primed: bool = False
         self.startup_disclaimer_sent: bool = False
-        self.last_ocr_img_hash: str = ""
-        self.seen_ui_messages: Set[str] = set()
-        self.seen_ocr_keys: Set[str] = set()
-        self.ocr_recent_events_cache: Dict[str, float] = {}  # 5-minute sliding window comparison
+        self.mod_recent_events_cache: Dict[str, float] = {}  # 5-minute moderation-event comparison
         self.archived_message_keys: Set[str] = set()
         self.recent_bot_messages: Dict[str, float] = {}
         self.memory: List[List[str]] = []
@@ -576,7 +587,6 @@ def load_all_persisted_data():
                     if "startup_flags" in cfg:
                         flags = cfg["startup_flags"]
                         state.listening_enabled = flags.get("listening", True)
-                        state.watching_ocr_enabled = flags.get("watching_ocr", True)
                         state.transcribe_enabled = flags.get("transcription", True)
                         state.voice_enabled = flags.get("voice_responses", False)
                     print(f"[CONFIG] Loaded config from {CONFIG_FILE}")
@@ -586,27 +596,66 @@ def load_all_persisted_data():
     # Restore Bot Runtime State across restarts
     load_bot_runtime_state()
 
-def save_bot_runtime_state():
-    """Saves operational flags, tone, and recent seen message signatures to STATE_FILE."""
-    with state.file_lock:
+def _has_pending_pagination() -> bool:
+    """True when any terminal has a !mo pagination in progress (shared store)."""
+    if _core is not None:
+        return bool(_core.load_pagination())
+    with state.lock:
+        return state.pending_pagination is not None
+
+
+def _config_persona() -> str:
+    """Current saved ElevenLabs persona from config.json (valley/uppity/valley_sexy)."""
+    if _core is not None:
         try:
-            with state.lock:
-                signatures = list(state.seen_message_signatures)[-1000:]
-                data = {
-                    "listening_enabled": state.listening_enabled,
-                    "transcribe_enabled": state.transcribe_enabled,
-                    "chatty_mode": state.chatty_mode,
-                    "bot_tone": state.bot_tone,
-                    "voice_enabled": state.voice_enabled,
-                    "repeat_mode": state.repeat_mode,
-                    "saved_at": datetime.now().isoformat(),
-                    "recent_signatures": signatures
-                }
+            return str(_core.load_config().get("elevenlabs_persona", "valley"))
+        except Exception:
+            pass
+    return "valley"
+
+
+def enqueue_broadcast_task(text: str, persona: str = "valley") -> bool:
+    """
+    Queues an audible broadcast for Terminal 2 (cross-process safe).
+    Returns False only when the shared store is unavailable.
+    """
+    if _core is None:
+        print("[SPEECH QUEUE] kaekae_core unavailable; cannot queue broadcast.")
+        return False
+    voice = _core.load_config().get("voice", VOICE)
+    rate = _core.load_config().get("voice_rate", VOICE_RATE)
+    pitch = _core.load_config().get("voice_pitch", VOICE_PITCH)
+    return _core.enqueue_broadcast(text, persona=persona, voice=voice,
+                                   rate=rate, pitch=pitch, source="t1")
+
+
+def save_bot_runtime_state():
+    """Saves operational flags, tone, and HUD-visible fields to STATE_FILE (cross-process safe)."""
+    with state.lock:
+        data = {
+            "listening_enabled": state.listening_enabled,
+            "transcribe_enabled": state.transcribe_enabled,
+            "chatty_mode": state.chatty_mode,
+            "bot_tone": state.bot_tone,
+            "voice_enabled": state.voice_enabled,
+            "repeat_mode": state.repeat_mode,
+            "responses_muted": state.responses_muted,
+            "diss_active": state.diss_active,
+            "diss_target": state.diss_target,
+            "current_active_speaker": state.current_active_speaker,
+            "current_focused_room": state.current_focused_room,
+            "current_room_users": sorted(state.current_room_users),
+            "saved_at": datetime.now().isoformat(),
+        }
+    try:
+        if _core is not None:
+            _core.write_json_atomic(_core.p(STATE_FILE).name, data)
+        else:
             with open(STATE_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-            print(f"[BOT STATE] State saved to {STATE_FILE} (transcribe={state.transcribe_enabled}, listening={state.listening_enabled})")
-        except Exception as e:
-            print(f"[BOT STATE ERROR] Failed saving {STATE_FILE}: {e}")
+        print(f"[BOT STATE] State saved to {STATE_FILE} (transcribe={state.transcribe_enabled}, listening={state.listening_enabled})")
+    except Exception as e:
+        print(f"[BOT STATE ERROR] Failed saving {STATE_FILE}: {e}")
 
 def load_bot_runtime_state():
     """Restores operational flags, tone, and message signatures from previous session."""
@@ -629,9 +678,21 @@ def load_bot_runtime_state():
                     state.voice_enabled = bool(data["voice_enabled"])
                 if "repeat_mode" in data:
                     state.repeat_mode = bool(data["repeat_mode"])
-                if "recent_signatures" in data:
-                    for sig in data["recent_signatures"]:
-                        state.seen_message_signatures.add(sig)
+                if "responses_muted" in data:
+                    state.responses_muted = bool(data["responses_muted"])
+                if "diss_active" in data:
+                    state.diss_active = bool(data["diss_active"])
+                if "diss_target" in data:
+                    state.diss_target = str(data["diss_target"])
+                if "current_active_speaker" in data:
+                    state.current_active_speaker = str(data["current_active_speaker"])
+                if "current_focused_room" in data and data["current_focused_room"]:
+                    state.current_focused_room = str(data["current_focused_room"])
+                for u in data.get("current_room_users", []) or []:
+                    if is_valid_camfrog_username(str(u)):
+                        state.current_room_users.add(str(u))
+                # NOTE: recent_signatures (timestamp-based scheme) intentionally
+                # NOT restored - dedupe_claims.json is the durable claim store now.
             print("=" * 65)
             print("[BOT STATE RESTORED FROM DISK]")
             print(f"  * Live Transcription: {'ON' if state.transcribe_enabled else 'OFF'}")
@@ -1820,9 +1881,9 @@ def load_calibrated_stage_coordinates() -> Optional[Dict[str, Any]]:
 
 def find_active_speaker(win) -> str:
     """
-    Finds the active microphone speaker's username using Chromium UIA inspection
-    and OCR on the region visually to the RIGHT of the speaker icon / Talk button.
-    Accurately resolves usernames like 'OMGitsMyPHONE' against active room members.
+    Finds the active microphone speaker's username using Chromium UIA inspection.
+    CEF-only: text/node labels adjacent to the Talk button are resolved against
+    active room members (e.g. 'OMGitsMyPHONE').
     """
     if not win:
         return "Unknown speaker"
@@ -1845,7 +1906,7 @@ def find_active_speaker(win) -> str:
             if u.lower() == cand_clean.lower():
                 return u
 
-        # Check close fuzzy match (fixes OCR artifacts like '0MGitsMyPHONE' -> 'OMGitsMyPHONE')
+        # Check close fuzzy match for adjacent-label fragments (e.g. partial 'OMGitsMyPHONE')
         best_match = None
         best_ratio = 0.0
         for u in known_users:
@@ -1911,50 +1972,12 @@ def find_active_speaker(win) -> str:
     except Exception:
         pass
 
-    # Step 3: Calibrated Micro-ROI OCR Fallback (situated right of speaker icon / Talk button)
-    coords = load_calibrated_stage_coordinates()
-    reg = None
-    if coords and "active_speaker_ocr_region" in coords:
-        c_reg = coords["active_speaker_ocr_region"]
-        reg = (int(c_reg["left"]), int(c_reg["top"]), int(c_reg["width"]), int(c_reg["height"]))
-    elif win:
-        try:
-            win_rect = win.rectangle()
-            left = win_rect.left + int(win_rect.width() * 0.82)
-            top = win_rect.top + int(win_rect.height() * 0.58)
-            reg = (left, top, 190, 30)
-        except Exception:
-            pass
-
-    if reg and pyautogui is not None and pytesseract is not None:
-        try:
-            shot = pyautogui.screenshot(region=reg)
-            if Image is not None:
-                w, h = shot.size
-                upscaled = shot.resize((w * 3, h * 3), Image.BICUBIC if hasattr(Image, "BICUBIC") else Image.Resampling.BICUBIC)
-                gray = upscaled.convert('L')
-                if ImageEnhance is not None:
-                    gray = ImageEnhance.Contrast(gray).enhance(2.2)
-                if ImageOps is not None:
-                    stat = gray.histogram()
-                    avg_b = sum(i * count for i, count in enumerate(stat)) / (w * h * 9)
-                    if avg_b < 125:
-                        gray = ImageOps.invert(gray)
-            else:
-                gray = shot.convert('L')
-
-            custom_config = r'--psm 7 -c tessedit_char_whitelist=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-$.'
-            txt = pytesseract.image_to_string(gray, config=custom_config).strip()
-            matched = _resolve_against_room_users(txt)
-            if matched:
-                with state.lock:
-                    if state.current_active_speaker != matched:
-                        state.current_active_speaker = matched
-                        print(f"[ACTIVE SPEAKER OCR] Identified mic speaker: '{matched}'")
-                return matched
-        except Exception:
-            pass
-
+    # CEF-only engine: OCR screenshots were removed. Unknown means "not visible in DOM".
+    unknown_msg = "Unknown speaker" if (global_probe is None) else global_probe.get_speaker()
+    if unknown_msg and unknown_msg != "Unknown speaker":
+        with state.lock:
+            state.current_active_speaker = unknown_msg
+        return unknown_msg
     return "Unknown speaker"
 
 def scan_room_users(win) -> Set[str]:
@@ -2013,191 +2036,35 @@ def room_users_scanner_worker():
             pass
         time.sleep(4.0)
 
-def get_talk_button_region(win) -> Tuple[int, int, int, int]:
-    """
-    Locates the Talk button rectangle in the Camfrog stage controls.
-    CRITICAL: The TALK button is visually to the LEFT of the push-to-talk arrow down button!
-    Avoids accidentally pressing the dropdown arrow which controls hands-free/PTT menu.
-    """
-    coords = load_calibrated_stage_coordinates()
-    if coords:
-        if "talk_button_x" in coords and "talk_button_y" in coords:
-            tx, ty = int(coords["talk_button_x"]), int(coords["talk_button_y"])
-            return (tx - 35, ty - 15, tx + 35, ty + 15)
-        if "talk_button" in coords and isinstance(coords["talk_button"], dict) and "x" in coords["talk_button"]:
-            tx, ty = int(coords["talk_button"]["x"]), int(coords["talk_button"]["y"])
-            return (tx - 35, ty - 15, tx + 35, ty + 15)
-
-    if win:
-        try:
-            # Look for talk button or dropdown arrow among descendants
-            arrow_rect = None
-            talk_rect = None
-            for ctrl in win.descendants():
-                if ctrl.element_info.control_type == "Button":
-                    name = (ctrl.element_info.name or "").strip().lower()
-                    rect = ctrl.rectangle()
-                    if "arrow" in name or "dropdown" in name or "hands-free" in name or "push-to-talk" in name:
-                        arrow_rect = rect
-                    if name == "talk":
-                        talk_rect = rect
-                    if 1350 <= rect.left <= 1800 and 450 <= rect.top <= 750:
-                        if not talk_rect:
-                            talk_rect = rect
-
-            if arrow_rect:
-                # The TALK button is positioned to the LEFT of the arrow down
-                offset = coords.get("talk_button_offset_left_of_arrow_px", 55) if coords else 55
-                tb_center_x = arrow_rect.left - offset
-                tb_center_y = (arrow_rect.top + arrow_rect.bottom) // 2
-                return (tb_center_x - 30, tb_center_y - 15, tb_center_x + 30, tb_center_y + 15)
-
-            if talk_rect:
-                # If talk_rect was actually the arrow down or container, offset to left
-                left = talk_rect.left
-                top = talk_rect.top
-                return (left - 50, top, left + 20, talk_rect.bottom)
-        except Exception:
-            pass
-
-    # Default fallback window percentage
-    if win:
-        win_rect = win.rectangle()
-        # Offset to the left of the arrow
-        left = win_rect.left + int(win_rect.width() * 0.74)
-        top = win_rect.top + int(win_rect.height() * 0.58)
-        return (left, top, left + 80, top + 35)
-
-    return (1450, 580, 1530, 615)
-
-def check_talk_button_state_fast(win) -> Tuple[bool, str, Tuple[int, int]]:
-    """
-    Fast ROI check on the Talk button (visually left of arrow).
-    Returns (is_free: bool, label_or_holder: str, (click_x, click_y)).
-    """
-    region = get_talk_button_region(win)
-    left, top, right, bottom = region
-    click_x = (left + right) // 2
-    click_y = (top + bottom) // 2
-
-    if pytesseract is None:
-        with state.lock:
-            active_spk = state.current_active_speaker
-            is_free = active_spk in {"Unknown speaker", "Unknown", "", "talk"}
-            return (is_free, active_spk, (click_x, click_y))
-
-    try:
-        btn_img = pyautogui.screenshot(region=(left, top, max(10, right - left), max(10, bottom - top)))
-        txt = pytesseract.image_to_string(btn_img, config='--psm 7').strip().lower()
-        if not txt or "talk" in txt:
-            return (True, "talk", (click_x, click_y))
-        else:
-            return (False, txt, (click_x, click_y))
-    except Exception:
-        return (True, "talk", (click_x, click_y))
-
 def speak_on_camfrog_microphone(text_to_say: str) -> bool:
     """
-    Makes the bot audibly speak the message on the Camfrog microphone:
-    1. Delegates to global_talk_controller (CEF render window message, F10 hotkey, or UIA hold).
-    2. Uses intelligent Push-To-Talk hold (keeping the mic open during speech, not rapid burst clicks).
-    3. Guarantees immediate, clean release upon completion.
+    Speaks a message on the Camfrog microphone via the CEF talk controller only.
+    (The OCR/ROI talk-button fallback was removed: CEF/UIA is the single source.)
+    Reports the controller's REAL result - never claims success on a failed grab.
     """
-    if global_talk_controller is not None:
-        try:
-            return global_talk_controller.speak_and_hold(text_to_say, voice=VOICE, rate=VOICE_RATE, pitch=VOICE_PITCH)
-        except Exception as e:
-            print(f"[MIC TTS] global_talk_controller warning: {e}; falling back to calibrated hold.")
-
-    win = get_camfrog_window()
-    if not win:
-        print("[MIC TTS] Camfrog window not attached!")
+    # One-hour outbound gate: never repeat something already spoken/sent.
+    if _core is not None and not _core.claim_or_suppress("reply", text_to_say):
+        print(f"[MIC TTS] Gate: suppressed repeat within past hour: {text_to_say[:70]!r}")
         return False
 
-    print(f"[MIC TTS] Waiting for talk button to be free for: \"{text_to_say}\"...")
-    start_wait = time.time()
-    click_coords = (1480, 600)
-    button_free = False
-
-    while time.time() - start_wait < 15.0:
-        is_free, holder, coords = check_talk_button_state_fast(win)
-        click_coords = coords
-        if is_free:
-            button_free = True
-            break
-        time.sleep(0.08)
-
-    # Bring Camfrog into foreground
+    if global_talk_controller is None:
+        print("[MIC TTS] CEF talk controller unavailable; cannot broadcast.")
+        return False
     try:
-        win.set_focus()
-    except Exception:
-        pass
-
-    # Hold talk button (PTT hold on calibrated coordinates)
-    held_mouse = False
-    held_f10 = False
-    if pyautogui is not None:
-        try:
-            pyautogui.moveTo(click_coords[0], click_coords[1], duration=0.08)
-            time.sleep(0.04)
-            pyautogui.mouseDown(click_coords[0], click_coords[1])
-            held_mouse = True
-            print(f"[MIC TTS] Calibrated talk button held down at {click_coords}.")
-        except Exception as e:
-            print(f"[MIC TTS] MouseDown error: {e}")
-            try:
-                pyautogui.keyDown("f10")
-                held_f10 = True
-            except Exception:
-                pass
-
-    speech_duration = max(2.5, len(text_to_say.split()) * 0.38)
-    try:
-        temp_wav = "temp_say_broadcast.wav"
-        from cef_probe import synthesize_speech_to_wav
-        synthesized = synthesize_speech_to_wav(text_to_say, temp_wav, voice=VOICE, rate=VOICE_RATE, pitch=VOICE_PITCH)
-        played = False
-
-        # 1. Direct VB-Audio Virtual Cable Output (into Camfrog mic input)
-        if 'play_wav_to_virtual_cable' in globals() and play_wav_to_virtual_cable is not None:
-            try:
-                played = play_wav_to_virtual_cable(temp_wav, AUDIO_OUTPUT_DEVICE)
-            except Exception as e_route:
-                print(f"[MIC TTS] Virtual cable playback warning: {e_route}")
-
-        # 2. Pygame fallback
-        if not played and pygame is not None and os.path.exists(temp_wav):
-            try:
-                pygame.mixer.init()
-                pygame.mixer.music.load(temp_wav)
-                pygame.mixer.music.play()
-                while pygame.mixer.music.get_busy():
-                    time.sleep(0.1)
-                played = True
-            except Exception as e_pg:
-                print(f"[MIC TTS] pygame error: {e_pg}")
-
-        if not played:
-            time.sleep(speech_duration)
+        result = global_talk_controller.speak_and_hold(
+            text_to_say, voice=VOICE, rate=VOICE_RATE, pitch=VOICE_PITCH
+        )
+        if isinstance(result, dict):
+            print(f"[MIC TTS] Broadcast result: ok={result.get('ok')} "
+                  f"acquired={result.get('acquired')} playback={result.get('playback_ok')} "
+                  f"speaker={result.get('observed_speaker')!r} "
+                  f"attempts={result.get('attempts')} reason={result.get('reason')!r}")
+            return bool(result.get("ok"))
+        return bool(result)
     except Exception as e:
-        print(f"[MIC TTS] Audio playback error: {e}")
-        time.sleep(speech_duration)
-    finally:
-        time.sleep(0.2)
-        # Release talk button and F10 cleanly
-        if held_f10 and pyautogui is not None:
-            try:
-                pyautogui.keyUp("f10")
-            except Exception:
-                pass
-        if held_mouse and pyautogui is not None:
-            try:
-                pyautogui.mouseUp(click_coords[0], click_coords[1])
-            except Exception:
-                pass
-        print("[MIC TTS] Talk button released. Microphone free for room!")
+        print(f"[MIC TTS] speak_and_hold failed: {e}")
+        return False
 
-    return True
 
 def split_into_chat_chunks(text: str, max_len: int = MAX_MSG_LENGTH) -> List[str]:
     """Splits message strictly into <= 400 char segments without breaking words."""
@@ -2222,16 +2089,40 @@ def send_chat_message(answer: str, announce: bool = True, override_mute: bool = 
     """
     Types a message into Camfrog chat text box using clipboard + Enter.
     Respects responses_muted unless override_mute is True (used for direct user commands).
+    Applies the durable one-hour no-repeat gate to reply content; timestamped
+    system acks (control feedback) bypass it so commands always confirm.
     """
+    if not answer:
+        return
     with state.lock:
         if state.responses_muted and not override_mute:
             print("[CHAT] Muted: Skipping spontaneous send.")
             return
 
+    # Outbox mode (Terminal 2/3): hand the line to Terminal 1, the single writer.
+    if CHAT_SEND_MODE == "outbox":
+        if _core is not None and _core.append_chat_outbox(answer, override_mute=override_mute):
+            print(f"[CHAT OUTBOX] Queued for Terminal 1: {answer[:70]!r}")
+        else:
+            print("[CHAT OUTBOX] ERROR: shared outbox unavailable; line dropped.")
+        return
+
+    # One-hour outbound gate (chat side). Timestamped system banners bypass it.
+    # Checked AFTER window attach so a failed attach never burns the claim.
     win = get_camfrog_window()
     if not win:
         print("[CHAT] Error: Camfrog window not attached!")
         return
+
+    if _core is not None:
+        is_system = (
+            bool(re.match(r'^\(\d{2}/\d{2}I\d{2}:\d{2}:\d{2}\)', answer))
+            or answer.startswith(("[CEF Talk]", "[Mic Broadcast]"))
+        )
+        kind = "system" if is_system else "reply"
+        if not _core.claim_or_suppress(kind, answer):
+            print(f"[CHAT] Gate: suppressed repeat within past hour: {answer[:70]!r}")
+            return
 
     norm_msg = " ".join(answer.lower().split())
     with state.lock:
@@ -2343,17 +2234,20 @@ def paginate_room_users(members: Set[str], requester: str):
     # Send first page immediately
     send_chat_message(pages[0], override_mute=True)
 
+    if total_pages > 1:
+        pag = {
+            "title": "Room Users",
+            "chunks": pages,
+            "current_index": 1,  # Next page index to send upon !mo
+            "requester": requester,
+            "timestamp": time.time()
+        }
+    else:
+        pag = None
     with state.lock:
-        if total_pages > 1:
-            state.pending_pagination = {
-                "title": "Room Users",
-                "chunks": pages,
-                "current_index": 1,  # Next page index to send upon !mo
-                "requester": requester,
-                "timestamp": time.time()
-            }
-        else:
-            state.pending_pagination = None
+        state.pending_pagination = pag
+    if _core is not None:
+        _core.save_pagination(pag)
 
 def queue_or_send_paginated(title: str, items: List[str], requester: str):
     """Formats arbitrary items into pages of <= 400 characters and activates !mo trigger."""
@@ -2376,39 +2270,56 @@ def queue_or_send_paginated(title: str, items: List[str], requester: str):
         pages.append((header + c)[:MAX_MSG_LENGTH])
 
     send_chat_message(pages[0], override_mute=True)
-    
+
+    pag = {
+        "title": title,
+        "chunks": pages,
+        "current_index": 1,
+        "requester": requester,
+        "timestamp": time.time()
+    }
     with state.lock:
-        state.pending_pagination = {
-            "title": title,
-            "chunks": pages,
-            "current_index": 1,
-            "requester": requester,
-            "timestamp": time.time()
-        }
+        state.pending_pagination = pag
+    if _core is not None:
+        _core.save_pagination(pag)
 
 def handle_mo_command(requester: str) -> bool:
-    """Handles the !mo pagination trigger to send subsequent pages."""
-    with state.lock:
-        pag = state.pending_pagination
-        if not pag:
-            return False
+    """Handles the !mo pagination trigger to send subsequent pages (shared store)."""
+    if _core is not None:
+        pag = _core.load_pagination() or None
+    else:
+        with state.lock:
+            pag = state.pending_pagination
+    if not pag:
+        return False
 
-        if time.time() - pag["timestamp"] > 300:  # 5 minutes window
+    if time.time() - pag.get("timestamp", 0) > 300:  # 5 minutes window
+        if _core is not None:
+            _core.save_pagination(None)
+        with state.lock:
             state.pending_pagination = None
-            return False
+        return False
 
-        idx = pag["current_index"]
-        chunks = pag["chunks"]
-        if idx >= len(chunks):
+    idx = pag.get("current_index", 0)
+    chunks = pag.get("chunks", [])
+    if idx >= len(chunks):
+        if _core is not None:
+            _core.save_pagination(None)
+        with state.lock:
             state.pending_pagination = None
-            send_chat_message(f"[End of {pag['title']}]", override_mute=True)
-            return True
+        send_chat_message(f"[End of {pag.get('title', 'results')}]", override_mute=True)
+        return True
 
-        next_chunk = chunks[idx]
-        pag["current_index"] += 1
-        pag["timestamp"] = time.time()
-        if pag["current_index"] >= len(chunks):
+    next_chunk = chunks[idx]
+    pag["current_index"] = idx + 1
+    pag["timestamp"] = time.time()
+    if pag["current_index"] >= len(chunks):
+        if _core is not None:
+            _core.save_pagination(None)
+        with state.lock:
             state.pending_pagination = None
+    elif _core is not None:
+        _core.save_pagination(pag)
 
     send_chat_message(next_chunk, override_mute=True)
     return True
@@ -2541,238 +2452,49 @@ def extract_chat_messages(lines: List[str]) -> List[Tuple[str, str, str]]:
 
     return results
 
-def ocr_scan_camfrog_chat():
-    """
-    Scans the Camfrog room chat log stream:
-    1. Fast-Path: Queries direct Chromium/CEF accessibility tree (0ms, 100% precision).
-    2. Fallback: High-resolution Tesseract OCR on chat region.
-    """
-    with state.lock:
-        if not state.watching_ocr_enabled:
-            return
-        now = time.time()
-        if now < state.ocr_paused_until:
-            return
-        if now - state.last_ocr_time < state.ocr_current_interval:
-            return
-        state.last_ocr_time = now
-
-    # Fast-Path 1: Direct Chromium / CEF extraction
-    if global_probe is not None:
-        try:
-            cef_msgs = global_probe.get_chat_messages(limit=10)
-            if cef_msgs:
-                for item in cef_msgs:
-                    sender = item.get("sender", "")
-                    body = item.get("text", "")
-                    ts_str = format_bot_timestamp()
-                    if sender and body:
-                        process_chat_message(sender, ts_str, body)
-                return
-        except Exception:
-            pass
-
-    win = get_camfrog_window()
-    if not win:
-        return
-
-    try:
-        win_rect = win.rectangle()
-        # Full lower chat stream: from ~35% height down to 40px from bottom (above chat input box)
-        c_left = win_rect.left + 10
-        c_top = win_rect.top + int(win_rect.height() * 0.35)
-        c_width = int(win_rect.width() * 0.78)
-        c_height = max(100, (win_rect.bottom - 40) - c_top)
-        chat_region = (c_left, c_top, c_width, c_height)
-
-        img = pyautogui.screenshot(region=chat_region)
-        if Image is not None and ImageEnhance is not None:
-            # 1. High-resolution 2x upscale using Lanczos resampling for crisp character glyphs
-            w, h = img.size
-            resample_mode = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS', getattr(Image, 'LANCZOS', None))
-            hires_img = img.resize((w * 2, h * 2), resample=resample_mode) if resample_mode is not None else img.resize((w * 2, h * 2))
-            # 2. Convert to Grayscale
-            gray = hires_img.convert('L')
-            # 3. Boost contrast and sharpness for clean separation from chat background
-            enh = ImageEnhance.Contrast(gray).enhance(2.0)
-            if hasattr(ImageEnhance, 'Sharpness'):
-                enh = ImageEnhance.Sharpness(enh).enhance(1.6)
-            # 4. Tesseract config: preserve interword spaces and uniform text block layout
-            tess_config = r'--psm 6 -c preserve_interword_spaces=1'
-            text = pytesseract.image_to_string(enh, config=tess_config)
-        else:
-            text = pytesseract.image_to_string(img)
-    except Exception:
-        return
-
-    lines = [l.strip() for l in text.split('\n') if l.strip()]
-
-    # Filter out bot's own banner timestamps, bot status replies, and [MIC] broadcasts
-    # to strictly prevent infinite feedback loops!
-    clean_ocr_lines = []
-    for raw_l in lines:
-        l_str = raw_l.strip()
-        if not l_str:
-            continue
-        l_lower = l_str.lower()
-        # Drop bot timestamp banners e.g. (09/27I10:20:31) or (09/27|10:20:31)
-        if re.search(r'\(\d{2}/\d{2}[\|I]\d{2}:\d{2}:\d{2}\)', l_str):
-            continue
-        # Drop [MIC] speaker broadcast lines
-        if "[mic]" in l_lower:
-            continue
-        # Drop bot status broadcasts
-        if "live microphone transcription is" in l_lower or "listening toggled" in l_lower:
-            continue
-        clean_ocr_lines.append(l_str)
-
-    # 1. Structured message parsing via extract_chat_messages
-    parsed_msgs = extract_chat_messages(clean_ocr_lines)
-
-    # 2. Hybrid Catch-all for standalone !commands where OCR dropped the preceding header line
-    for l_idx, raw_l in enumerate(clean_ocr_lines):
-        norm_line = re.sub(r'^[!1l|i/\\]+\s*', '!', raw_l.strip())
-        if norm_line.startswith("!") and len(norm_line) <= 80:
-            # Check if already captured in parsed_msgs
-            already = any(norm_line.lower() in m.lower() for _, _, m in parsed_msgs)
-            if not already:
-                detected_user = "b3_d33"
-                if l_idx > 0:
-                    cand = re.sub(r'[^a-zA-Z0-9_\-\$]', '', clean_ocr_lines[l_idx - 1].split()[0])
-                    if cand and is_valid_camfrog_username(cand) and cand.lower() not in BOT_ALT_USERNAMES and "kaekae" not in cand.lower():
-                        detected_user = cand
-                curr_time_str = datetime.now().strftime("%I:%M %p")
-                parsed_msgs.append((detected_user, curr_time_str, norm_line))
-
-    # 3. Process all detected messages in chronological order (oldest -> newest)
-    for clean_u, t, m in parsed_msgs:
-        if not is_valid_camfrog_username(clean_u):
-            continue
-        if "[mic]" in clean_u.lower() or "[mic]" in m.lower():
-            continue
-        u_low = clean_u.lower()
-        # Strictly ignore bot accounts
-        if u_low in BOT_ALT_USERNAMES or u_low == BOT_USERNAME.lower() or "kaekae" in u_low or u_low in IGNORED_USERS:
-            continue
-        if "live microphone transcription is" in m.lower():
-            continue
-
-        sig = make_message_signature(clean_u, t, m)
-        with state.lock:
-            if sig in state.seen_message_signatures:
-                continue
-            state.seen_message_signatures.add(sig)
-            if len(state.seen_message_signatures) > 3000:
-                state.seen_message_signatures = set(list(state.seen_message_signatures)[-1500:])
-
-        # Rolling text deduplication buffer (prevents repeating records for messages visible on screen)
-        # Direct bot commands (starting with '!', '/', or containing transcribe/triggers) NEVER get dropped!
-        m_strip = m.strip()
-        is_bot_cmd = (
-            m_strip.startswith("!") or 
-            m_strip.startswith("/") or 
-            any(m_strip.lower().startswith(trig) for trig in BOT_TRIGGERS) or
-            "transcribe" in m.lower() or 
-            "transribe" in m.lower()
-        )
-        if not is_bot_cmd:
-            norm_txt = re.sub(r'[^a-zA-Z0-9]', '', m.lower())
-            if not norm_txt or len(norm_txt) < 1:
-                continue
-            text_fingerprint = f"{u_low}|{norm_txt}"
-            now_ts_sec = time.time()
-            with state.lock:
-                if not hasattr(state, "recent_chat_texts"):
-                    state.recent_chat_texts = {}
-                # Expire entries older than 90 seconds
-                expired = [k for k, ts in state.recent_chat_texts.items() if now_ts_sec - ts > 90]
-                for k in expired:
-                    del state.recent_chat_texts[k]
-
-                if text_fingerprint in state.recent_chat_texts:
-                    continue
-                state.recent_chat_texts[text_fingerprint] = now_ts_sec
-
-        print(f"[OCR CHAT DETECTED] {t} <{clean_u}>: {m}")
-        record_chat_message(clean_u, m, t, "ocr")
-        process_chat_message(clean_u, t, m)
-
-    # Detect Moderation Events with 5-minute sliding window comparison
-    found_mod_this_scan = False
-    current_time = time.time()
-
-    # Clean up expired OCR event cache entries (> 300s / 5 minutes)
-    with state.lock:
-        expired_keys = [k for k, exp in state.ocr_recent_events_cache.items() if current_time - exp > 300]
-        for k in expired_keys:
-            del state.ocr_recent_events_cache[k]
-
-    ocr_mod_candidates = []
-    for line in lines:
-        if len(line) <= 120 and any(w in line.lower() for w in ["kick", "block", "punish", "ban"]):
-            ocr_mod_candidates.append(line)
-
-    # 2-line sliding window for wrapped notices
-    for i in range(len(lines) - 1):
-        joined = f"{lines[i]} {lines[i+1]}".strip()
-        if len(joined) <= 150 and any(w in joined.lower() for w in ["kick", "block", "punish", "ban"]):
-            ocr_mod_candidates.append(joined)
-
-    for cand in ocr_mod_candidates:
-        cleaned = re.sub(r'^\d{1,2}:\d{2}(:\d{2})?\s*(AM|PM)?\s*', '', cand, flags=re.IGNORECASE).strip()
-        ev = detect_kick_block("", cleaned) or detect_kick_block("", cand)
-        if ev and ev.get("actor", "").lower() not in BOT_ALT_USERNAMES:
-            sig = f"{state.current_focused_room}|{ev['actor'].lower()}|{ev['action']}|{ev['target'].lower()}"
-            with state.lock:
-                if sig in state.ocr_recent_events_cache:
-                    continue
-                state.ocr_recent_events_cache[sig] = current_time
-                ev["time"] = now_ts
-                ev["room"] = state.current_focused_room
-                state.kicks.append(ev)
-                state.moderation_audit.append(ev)
-                state.last_moderation_time = current_time
-                found_mod_this_scan = True
-
-                # Update user's private moderation deed record
-                actor_key = ev["actor"].lower()
-                if actor_key in state.users:
-                    state.users[actor_key].setdefault("moderation_actions", []).append(ev)
-
-            save_kicks()
-            save_users()
-            print(f"[OCR MOD LOGGED] {now_ts} in [{state.current_focused_room}]: {ev['actor']} {ev['action']} {ev['target']} (from '{cand}')")
-
-    # Adaptive OCR frequency:
-    # If moderation actions were found, run fast (8-10s).
-    # If none found in recent window (> 300s), decay/increase interval up to 25s to save CPU & memory!
-    with state.lock:
-        if found_mod_this_scan:
-            state.ocr_current_interval = OCR_MIN_INTERVAL
-        elif current_time - state.last_moderation_time > 300:
-            state.ocr_current_interval = min(OCR_MAX_INTERVAL, state.ocr_current_interval + 2)
-
 # ==============================================================================
 # BLOCK 11: AI REASONING, !diss ROASTING & !idk ENGINE
 # ==============================================================================
 
 def query_local_llm(prompt: str) -> str:
-    """Invokes local Ollama LLaMA 3.2 model with anti-repetition protection."""
+    """
+    Calls the local Ollama brain using the persisted config (brain_model,
+    brain_fallback, brain_timeout_s, brain_keep_alive, ollama_url).
+    The first reply of a keep-alive window pays the model load time, so the
+    timeout allows for a cold load before failing over to the fallback model.
+    """
+    cfg = _core.load_config() if _core is not None else {}
+    url = str(cfg.get("ollama_url", "http://127.0.0.1:11434")).rstrip("/")
+    primary = str(cfg.get("brain_model", "llama3.2:latest"))
+    fallback = str(cfg.get("brain_fallback", "llama3.2:latest"))
+    warm_timeout = float(cfg.get("brain_timeout_s", 8))
+    keep_alive = str(cfg.get("brain_keep_alive", "30m"))
+
     for attempt in range(3):
-        try:
-            resp = requests.post(
-                "http://localhost:11434/api/generate",
-                json={"model": "llama3.2", "prompt": prompt, "stream": False},
-                timeout=45
-            )
-            answer = resp.json().get("response", "").strip()
-            answer = " ".join(answer.split())
-            if not is_repetitive(answer) or attempt == 2:
-                return answer[:MAX_MSG_LENGTH]
-            prompt += "\nNote: Write a completely fresh and unique reply."
-        except Exception as e:
-            print(f"[LLM] Error calling Ollama: {e}")
-            break
+        for model, timeout in ((primary, warm_timeout + 12.0), (fallback, warm_timeout + 4.0)):
+            if not model:
+                continue
+            try:
+                resp = requests.post(
+                    f"{url}/api/generate",
+                    json={
+                        "model": model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "keep_alive": keep_alive,
+                    },
+                    timeout=timeout,
+                )
+                answer = str(resp.json().get("response", "")).strip()
+                answer = " ".join(answer.split())
+                if not answer:
+                    continue
+                if not is_repetitive(answer) or attempt == 2:
+                    return answer[:MAX_MSG_LENGTH]
+                prompt += "\nNote: Write a completely fresh and unique reply."
+                break  # answer was repetitive: retry with a new prompt
+            except Exception as e:
+                print(f"[LLM] {model} unavailable ({type(e).__name__}: {e}); trying next model.")
     return "Like, my brain glitched for a second, ask me again!"
 
 def is_repetitive(answer: str) -> bool:
@@ -3263,6 +2985,67 @@ def handle_moderation_query(requester: str, action_filter: str, target_user: str
 # BLOCK 14: MAIN MESSAGE DISPATCHER & COMMAND PARSER
 # ==============================================================================
 
+def claim_and_dispatch(clean_user: str, timestamp: str, message: str,
+                       source: str = "cef", trusted: bool = False) -> bool:
+    """
+    THE single claim-and-dispatch entry point for every captured chat message.
+    - Validates the sender before anything else (no invented usernames).
+    - Builds a timestamp-free signature (room|sender|normalized text) and
+      durably claims it BEFORE recording or dispatching, so a message that
+      lingers on screen can never trigger the bot twice - even across restarts.
+    - Commands and ordinary text go through the SAME claim (no bypass path).
+    Returns True only for the first, winning claim.
+    """
+    if not clean_user or not message:
+        return False
+    clean_u = str(clean_user).strip(": \t\r\n")
+    raw_m = str(message).strip()
+    if not clean_u or len(clean_u) < 2 or len(clean_u) > 20:
+        return False
+    if not is_valid_camfrog_username(clean_u):
+        return False
+    if "[mic]" in clean_u.lower() or "[mic]" in raw_m.lower():
+        return False
+
+    u_low = clean_u.lower()
+    if not is_authorized_user(clean_u):
+        if u_low in BOT_ALT_USERNAMES or u_low == BOT_USERNAME.lower() or "kaekae" in u_low or u_low in IGNORED_USERS:
+            return False
+        # Never ingest our own recently-sent chat lines (echo guard)
+        norm_m = " ".join(raw_m.lower().split())
+        with state.lock:
+            now_m = time.time()
+            state.recent_bot_messages = {k: ts for k, ts in state.recent_bot_messages.items() if now_m - ts < 120}
+            if norm_m in state.recent_bot_messages:
+                return False
+        if "kaekae is alpha testing" in norm_m or "alpha testing, debugging" in norm_m:
+            return False
+
+    # Durable, timestamp-free claim - persisted BEFORE any dispatch/logging
+    if _core is not None:
+        sig = _core.make_chat_signature(state.current_focused_room, clean_u, raw_m)
+        if not _core.claim_message(sig, room=state.current_focused_room):
+            return False
+    else:
+        # Fallback: in-memory claim if kaekae_core is unavailable
+        sig = make_message_signature(clean_u, timestamp, raw_m)
+        with state.lock:
+            if sig in state.seen_message_signatures:
+                return False
+            state.seen_message_signatures.add(sig)
+            if len(state.seen_message_signatures) > 3000:
+                state.seen_message_signatures = set(list(state.seen_message_signatures)[-1500:])
+
+    print(f"[CEF CHAT DETECTED] {timestamp} <{clean_u}>: {raw_m}")
+    try:
+        record_chat_message(clean_u, raw_m, timestamp, source)
+        process_chat_message(clean_u, timestamp, raw_m)
+    except Exception as e:
+        print(f"[DISPATCH ERROR] <{clean_u}> {raw_m[:60]!r}: {e}")
+        traceback.print_exc()
+        return False
+    return True
+
 def process_chat_message(username: str, timestamp: str, message: str):
     """Processes incoming messages with strict non-coinciding dispatch."""
     clean_user = username.strip()
@@ -3307,8 +3090,8 @@ def process_chat_message(username: str, timestamp: str, message: str):
             if m_act and m_targ and m_act.lower() not in BOT_ALT_USERNAMES:
                 sig = f"{state.current_focused_room}|{m_act.lower()}|{m_action.lower()}|{m_targ.lower()}"
                 with state.lock:
-                    if sig not in state.ocr_recent_events_cache:
-                        state.ocr_recent_events_cache[sig] = time.time()
+                    if sig not in state.mod_recent_events_cache:
+                        state.mod_recent_events_cache[sig] = time.time()
                         mod_ev["time"] = format_bot_timestamp()
                         mod_ev["room"] = state.current_focused_room
                         state.kicks.append(mod_ev)
@@ -3351,6 +3134,7 @@ def process_chat_message(username: str, timestamp: str, message: str):
 
     if is_off_cmd:
         with state.lock:
+            already_off = not state.transcribe_enabled
             state.transcribe_enabled = False
             state.repeat_mode = False
             while not audio_chunk_queue.empty():
@@ -3359,6 +3143,10 @@ def process_chat_message(username: str, timestamp: str, message: str):
                 except Exception:
                     break
         save_bot_runtime_state()
+        if already_off:
+            # Idempotent: duplicate OFF command must not re-ack.
+            print(f"[COMMAND] Transcription already OFF (duplicate from {clean_user} suppressed).")
+            return
         print(f"[COMMAND] Live microphone transcription turned OFF by {clean_user}")
         send_chat_message(f"{format_bot_timestamp()} Live microphone transcription is OFF.", override_mute=True)
         return
@@ -3384,6 +3172,7 @@ def process_chat_message(username: str, timestamp: str, message: str):
 
     if is_on_cmd:
         with state.lock:
+            already_on = state.transcribe_enabled and state.listening_enabled
             state.transcribe_enabled = True
             state.listening_enabled = True
             while not audio_chunk_queue.empty():
@@ -3392,6 +3181,10 @@ def process_chat_message(username: str, timestamp: str, message: str):
                 except Exception:
                     break
         save_bot_runtime_state()
+        if already_on:
+            # Idempotent: a lingering duplicate of the same command must not re-ack.
+            print(f"[COMMAND] Transcription already ON (duplicate from {clean_user} suppressed).")
+            return
         print(f"[COMMAND] Live microphone transcription turned ON by {clean_user} (transcribe_enabled={state.transcribe_enabled})")
         send_chat_message(f"{format_bot_timestamp()} Live microphone transcription is ON.", override_mute=True)
         return
@@ -3457,7 +3250,7 @@ Keep under 250 characters!
         return
 
     # 3. Pagination trigger: !mo or y
-    if msg_lower == "!mo" or (msg_lower == "y" and state.pending_pagination is not None):
+    if msg_lower == "!mo" or (msg_lower == "y" and _has_pending_pagination()):
         if handle_mo_command(clean_user):
             return
 
@@ -3527,15 +3320,23 @@ Keep under 250 characters!
     # 10. Listening & Transcription Controls (Standardized)
     if msg_lower in {"!listen", "!listening on", "!kk listen"}:
         with state.lock:
+            already_listening = state.listening_enabled
             state.listening_enabled = True
         save_bot_runtime_state()
+        if already_listening:
+            print(f"[COMMAND] Listening already ON (duplicate from {clean_user} suppressed).")
+            return
         send_chat_message(f"{format_bot_timestamp()} Listening is ON.", override_mute=True)
         return
 
     if msg_lower in {"!mute", "!listening off", "!kk mute"}:
         with state.lock:
+            already_muted = not state.listening_enabled
             state.listening_enabled = False
         save_bot_runtime_state()
+        if already_muted:
+            print(f"[COMMAND] Listening already OFF (duplicate from {clean_user} suppressed).")
+            return
         send_chat_message(f"{format_bot_timestamp()} Listening is OFF.", override_mute=True)
         return
 
@@ -3574,14 +3375,17 @@ Keep under 250 characters!
         send_chat_message(f"{format_bot_timestamp()} Chatty mode ON! I will be mingling in the room.", override_mute=True)
         return
 
-    # 13. Say Command: !say "text" (Authorized Only - Speaks audibly on Camfrog mic via fast Talk button lock)
+    # 13. Say Command: !say "text" (Authorized Only - broadcast is queued for Terminal 2)
     m_say = re.match(r'^!say\s+"?([^"]+)"?$', raw_msg, re.IGNORECASE)
     if m_say:
         if not is_authorized_user(clean_user):
             send_chat_message(f"@{clean_user}, !say is reserved for authorized creators.", override_mute=True)
             return
         text_to_say = m_say.group(1).strip()
-        speak_on_camfrog_microphone(text_to_say)
+        # Enqueue for Terminal 2 instead of blocking this chat loop with synthesis/mic wait.
+        if not enqueue_broadcast_task(text_to_say, persona=_config_persona()):
+            send_chat_message(f"@{clean_user}, speech queue unavailable - could not queue.", override_mute=True)
+            return
         send_chat_message(f"[Mic Broadcast]: {text_to_say}", override_mute=True)
         return
 
@@ -3881,11 +3685,23 @@ def print_triggers_list():
   !verbatim [username]     - Exact word-for-word quotes and mic transcripts for user (or active speaker)
   !verbatimall             - Recent verbatim speech from everyone in the room
 
+[Talk Button / Microphone Control]
+  !grab [seconds]          - Hold the Talk button (default 5s, max 30s)
+  !release                 - Release the Talk button immediately
+  !talkstatus              - Who holds the mic + the active press pattern
+  !reloadcoords            - Reload chat/talk coordinates from disk
+
 [Authorized Creator (Papi)]
   Authorized Users: b3_d33, dog3lived, $htickie, b3_dee, dog
   Title: Addressed with respect as 'Papi'
   Short replies: Quick respectful responses ('Yes Sir', 'No Sir', 'Okay Daddy', 'As you wish Pop')
-  !say "message"           - Audibly speaks through Camfrog microphone via Talk button (to LEFT of arrow)
+  !say "message"           - Queues a spoken broadcast; the mic grab is VERIFIED
+                             (rapid re-press until KaeKae's name holds the room
+                             speaker slot for 1 full second) or the broadcast aborts
+
+[Repeat Protection]
+  No message is answered twice: each chat message is claimed once (dedupe),
+  and KaeKae will not repeat any reply it sent in the past hour.
 """)
     print("=" * 75 + "\n")
 
@@ -3939,12 +3755,12 @@ def main():
         except Exception as e:
             print(f"[AUDIO-FILER] Notice: Could not start global_audio_filer: {e}")
 
-    if getattr(sys.modules.get("kaekae_bot", sys.modules[__name__]), "AUDIO_RECORD_ENABLED", True) and globals().get("AUDIO_RECORD_ENABLED", True):
+    if AUDIO_RECORD_ENABLED:
         audio_thread = threading.Thread(target=voice_listener_worker, daemon=True)
         audio_thread.start()
         print("[AUDIO THREAD] Room microphone streaming thread started.")
     else:
-        print("[AUDIO THREAD] Microphone streaming disabled in this process (delegated to Audio Worker).")
+        print("[AUDIO THREAD] Microphone streaming disabled in this process (Terminal 2 owns it).")
 
     diss_thread = threading.Thread(target=diss_interval_worker, daemon=True)
     diss_thread.start()
@@ -3978,9 +3794,10 @@ def main():
 
     # Keep Chromium CEF accessibility awake
     last_cef_ping_time = 0.0
+    last_heartbeat_time = 0.0
     OBJID_CLIENT = 0xFFFFFFFC
 
-    # Resilient Dual-Engine loop: Fast CEF UIAutomation + Complementary OCR
+    # Resilient single-source loop: Fast CEF UIAutomation (CEF only; no OCR)
     while not state.shutdown_event.is_set():
         try:
             curr_win = get_camfrog_window()
@@ -4013,75 +3830,36 @@ def main():
                 except Exception:
                     pass
 
-                # 3. Process CEF messages with deterministic signature deduplication (NO line index!)
+                # 3. Single claim-and-dispatch path (CEF is the only ingestion source)
                 parsed_msgs = extract_chat_messages(texts)
                 for clean_u, t, m in parsed_msgs:
-                    if not is_valid_camfrog_username(clean_u):
-                        continue
-                    if "[mic]" in clean_u.lower() or "[mic]" in m.lower():
-                        continue
+                    claim_and_dispatch(clean_u, t, m, source="cef_automation")
 
-                    # Sanitize username
-                    clean_u = clean_u.strip(": \t\r\n")
-                    if not clean_u or len(clean_u) < 2 or len(clean_u) > 20:
-                        continue
+                # 4. Silent command inbox (Terminal 3 -> Terminal 1, same claim path)
+                if _core is not None:
+                    try:
+                        for entry in _core.drain_inbox_commands():
+                            cmd_text = (entry.get("text") or "").strip()
+                            if cmd_text:
+                                claim_and_dispatch(
+                                    "b3_d33", format_bot_timestamp(), cmd_text,
+                                    source="command_inbox", trusted=True
+                                )
+                    except Exception as e_inbox:
+                        print(f"[INBOX] Drain warning: {e_inbox}")
 
-                    is_auth = is_authorized_user(clean_u)
-                    u_low = clean_u.lower()
-
-                    if not is_auth:
-                        if u_low in BOT_ALT_USERNAMES or u_low == BOT_USERNAME.lower() or "kaekae" in u_low or u_low in IGNORED_USERS:
-                            continue
-
-                        norm_m = " ".join(m.lower().split())
-                        with state.lock:
-                            now_m = time.time()
-                            state.recent_bot_messages = {k: ts for k, ts in state.recent_bot_messages.items() if now_m - ts < 120}
-                            if norm_m in state.recent_bot_messages:
-                                continue
-
-                        if "kaekae is alpha testing" in norm_m or "alpha testing, debugging" in norm_m:
-                            continue
-
-                    # Unified message signature: sender + time + message (NEVER line index)
-                    sig = make_message_signature(clean_u, t, m)
-                    with state.lock:
-                        if sig in state.seen_message_signatures:
-                            continue
-                        state.seen_message_signatures.add(sig)
-                        if len(state.seen_message_signatures) > 3000:
-                            state.seen_message_signatures = set(list(state.seen_message_signatures)[-1500:])
-
-                    # Rolling text deduplication buffer (prevents duplicate logs while message sits on screen)
-                    # Direct bot commands (starting with '!', '/', or containing transcribe/triggers) NEVER get dropped!
-                    m_strip = m.strip()
-                    is_bot_cmd = (
-                        m_strip.startswith("!") or 
-                        m_strip.startswith("/") or 
-                        any(m_strip.lower().startswith(trig) for trig in BOT_TRIGGERS) or
-                        "transcribe" in m.lower() or 
-                        "transribe" in m.lower()
-                    )
-                    if not is_bot_cmd:
-                        norm_txt = re.sub(r'[^a-zA-Z0-9]', '', m.lower())
-                        if not norm_txt or len(norm_txt) < 1:
-                            continue
-                        text_fingerprint = f"{u_low}|{norm_txt}"
-                        now_ts_sec = time.time()
-                        with state.lock:
-                            if not hasattr(state, "recent_chat_texts"):
-                                state.recent_chat_texts = {}
-                            expired = [k for k, ts in state.recent_chat_texts.items() if now_ts_sec - ts > 90]
-                            for k in expired:
-                                del state.recent_chat_texts[k]
-
-                            if text_fingerprint in state.recent_chat_texts:
-                                continue
-                            state.recent_chat_texts[text_fingerprint] = now_ts_sec
-
-                    print(f"[CEF CHAT DETECTED] {t} <{clean_u}>: {m}")
-                    record_chat_message(clean_u, m, t, "cef_automation")
-                    process_chat_message(clean_u, t, m)
+                # 4b. Chat outbox (Terminal 2/3 -> Terminal 1, single chat writer)
+                if _core is not None:
+                    try:
+                        for entry in _core.drain_chat_outbox():
+                            line = (entry.get("text") or "").strip()
+                            if line:
+                                send_chat_message(
+                                    line,
+                                    override_mute=bool(entry.get("override_mute", False))
+                                )
+                    except Exception as e_out:
+                        print(f"[OUTBOX] Drain warning: {e_out}")
 
                 # 4. Check for room moderation events in CEF text nodes (Single node & Sliding Window)
                 cef_mod_candidates = []
@@ -4101,8 +3879,8 @@ def main():
                     if ev and ev.get("actor", "").lower() not in BOT_ALT_USERNAMES:
                         sig = f"{state.current_focused_room}|{ev['actor'].lower()}|{ev['action']}|{ev['target'].lower()}"
                         with state.lock:
-                            if sig not in state.ocr_recent_events_cache:
-                                state.ocr_recent_events_cache[sig] = time.time()
+                            if sig not in state.mod_recent_events_cache:
+                                state.mod_recent_events_cache[sig] = time.time()
                                 ev["time"] = format_bot_timestamp()
                                 ev["room"] = state.current_focused_room
                                 state.kicks.append(ev)
@@ -4114,9 +3892,17 @@ def main():
                                 save_kicks()
                                 save_users()
 
-                # 5. Complementary OCR scan
-                if getattr(state, "watching_ocr_enabled", True):
-                    ocr_scan_camfrog_chat()
+                # (OCR complementary scan removed: CEF/UIA is the only source.)
+
+                # T1 heartbeat every ~5s so the HUD shows real liveness
+                if now_mono - last_heartbeat_time > 5.0:
+                    last_heartbeat_time = now_mono
+                    if _core is not None:
+                        try:
+                            _core.heartbeat("t1", room=state.current_focused_room,
+                                            speaker=state.current_active_speaker)
+                        except Exception:
+                            pass
 
             time.sleep(globals().get("CEF_CHAT_SCAN_INTERVAL", 0.25))
         except Exception as e:

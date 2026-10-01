@@ -108,21 +108,36 @@ def test_talk_button_interactive():
         except ValueError:
             duration = 5.0
 
-    print(f"\n[EXECUTION] Bringing Camfrog to front and executing '{mode}' for {duration}s...")
-    global_talk_controller.grab_mic(mode=mode)
-    start_t = time.time()
-    while time.time() - start_t < duration:
-        remaining = round(duration - (time.time() - start_t), 1)
-        print(f"  --> Holding microphone... {remaining}s remaining", end="\r")
-        time.sleep(0.2)
+    print("\n[EXECUTION] Verified grab: rapid re-press (rotating idempotent patterns)")
+    print("           until KaeKae's own name holds the speaker slot.")
+    try:
+        verdict = global_talk_controller.acquire_talk()
+    except Exception as e:
+        verdict = {"ok": False, "attempts": 0, "patterns": [], "method": "none",
+                   "observed_speaker": "", "stability_seconds": 0.0,
+                   "reason": f"exception: {e}"}
+    print(f"  attempts pressed : {verdict.get('attempts')}")
+    print(f"  press patterns   : {verdict.get('patterns')}")
+    print(f"  observed speaker : {verdict.get('observed_speaker') or '<never shown>'}")
+    print(f"  name stability   : {verdict.get('stability_seconds')}s")
+    if verdict.get("ok"):
+        start_t = time.time()
+        print(f"[EXECUTION] CONFIRMED - holding the mic for up to {duration}s...")
+        while time.time() - start_t < duration:
+            remaining = round(duration - (time.time() - start_t), 1)
+            print(f"  --> Holding verified mic... {remaining}s remaining", end="\r")
+            time.sleep(0.2)
+    else:
+        print(f"[EXECUTION] NOT VERIFIED - {verdict.get('reason')}")
+        print("             (the mic was released; KaeKae's name never held the slot)")
     print("\n[EXECUTION] Releasing microphone cleanly...")
     global_talk_controller.release_mic()
 
-    ans = input("\nDid the Talk button on your Camfrog stage activate and release properly? (y/n): ").strip().lower()
-    if ans.startswith("y"):
-        print("[SUCCESS] Talk button test verified!")
+    if verdict.get("ok"):
+        print("[SUCCESS] Talk button verified: KaeKae was the room speaker.")
     else:
-        print("[NOTICE] If it did not click, run 'python calibrate_camfrog.py' to recalibrate coordinates.")
+        print("[NOTICE] No verified grab. Try: 'python calibrate_camfrog.py', "
+              "or run cef_probe.py diagnostics option [2] for the full trace.")
 
 # ==============================================================================
 # TEST 2: AUDIO PLAYBACK TO VB-AUDIO VIRTUAL CABLE
@@ -193,7 +208,7 @@ def test_audio_playback_interactive():
             wf.writeframes(frames)
         print(f"[AUDIO READY] Generated dual-frequency test chime (3.0s, 48kHz PCM).")
     else:
-        from cef_probe import synthesize_speech_to_wav
+        from cef_probe import synthesize_speech_to_wav, _voice_summary
         voice = "en-US-AvaNeural"
         rate = "+12%"
         pitch = "+16Hz"
@@ -214,17 +229,33 @@ def test_audio_playback_interactive():
             if custom_phrase:
                 phrase = custom_phrase
 
-        print(f"\n[VOICE SYNTHESIS] Generating '{voice}' (Rate: {rate}, Pitch: {pitch})...")
+        print(f"\n[VOICE SYNTHESIS] Engine preference: {_voice_summary()}")
         print(f"Phrase: \"{phrase}\"")
-        synthesize_speech_to_wav(phrase, wav_path, voice=voice, rate=rate, pitch=pitch)
+        engine_used = synthesize_speech_to_wav(phrase, wav_path, voice=voice,
+                                               rate=rate, pitch=pitch)
+        if engine_used:
+            print(f"[VOICE SYNTHESIS] OK - produced by engine '{engine_used}' -> {wav_path}")
+        else:
+            print("[VOICE SYNTHESIS] FAILED - every configured engine failed "
+                  "(no synthetic tone is emitted as a fake success).")
 
     hold_mic = input("\nDo you want to hold the Camfrog Talk button while broadcasting? (y/n) [default: y]: ").strip().lower()
     should_hold = (hold_mic != "n")
+    grabbed = False
 
     if should_hold and global_talk_controller is not None:
-        print("\n[ACTION] Focusing Camfrog and holding microphone Talk button...")
-        global_talk_controller.grab_mic()
-        time.sleep(0.35)
+        print("\n[ACTION] Verified grab (KaeKae's name must hold the speaker slot)...")
+        try:
+            verdict = global_talk_controller.acquire_talk()
+            grabbed = bool(verdict.get("ok"))
+            print(f"  attempts={verdict.get('attempts')} patterns={verdict.get('patterns')}")
+            print(f"  observed speaker={verdict.get('observed_speaker')!r} "
+                  f"stable={verdict.get('stability_seconds')}s")
+            if not grabbed:
+                print(f"  NOT VERIFIED: {verdict.get('reason')}")
+                print("  Continuing WITHOUT the mic - the room may not hear this.")
+        except Exception as e:
+            print(f"  Grab error: {e}")
 
     print(f"[ACTION] Transmitting audio directly to '{selected_dev_name}'...")
     played = play_wav_to_virtual_cable(wav_path, target_name=selected_dev_name)
@@ -234,7 +265,8 @@ def test_audio_playback_interactive():
         print("[ACTION] Releasing microphone cleanly...")
         global_talk_controller.release_mic()
 
-    print(f"\nBroadcast result: {'SUCCESS' if played else 'FAILED'}")
+    print(f"\nBroadcast result: {'SUCCESS' if (played and grabbed) else 'PARTIAL/FAILED'}"
+          f"   (audio played={played}, mic verified={grabbed})")
     ans = input("\nDid you hear the audio broadcasting on your microphone in Camfrog? (y/n): ").strip().lower()
     if ans.startswith("y"):
         print("[SUCCESS] Audio routing verified!")

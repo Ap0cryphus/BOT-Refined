@@ -1,0 +1,36 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.pyd
+.Python
+
+# Runtime lock files created by kaekae_core.FileLock
+*.lock
+
+# Test / harness artifacts
+lock_probe.json
+_prefeval_backup/
+_presync_backup/
+runs/
+voice_test.wav
+temp_say_broadcast.wav
+test.wav
+bot_speak.wav
+
+# Telemetry event streams (runtime, grow daily - freeze anything you need to
+# keep with snapshot.bat into runs/, which is itself ignored)
+logs/*.jsonl
+logs/*.lock
+
+# Benchmarks ARE kept in git: they drove the config.json decisions
+!logs/bench_*.json
+
+# Audio archives (large, regenerable)
+audio_clips/
+audio_memory/
+
+# OS noise
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

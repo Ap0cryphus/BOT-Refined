@@ -3,9 +3,9 @@
 KAEKAE CLUSTER LAUNCHER (1-CLICK MULTI-TERMINAL LAUNCHER)
 ================================================================================
 Launches all 3 specialized terminals side-by-side:
-- Terminal 1: python chat_worker.py (OCR & Text Chat Engine)
-- Terminal 2: python audio_worker.py (Whisper STT, Mic & Talk Controller)
-- Terminal 3: python master_dashboard.py (HUD & Control Center)
+- Terminal 1: python chat_worker.py (CEF chat capture & command engine)
+- Terminal 2: python audio_worker.py (Whisper STT, voice & verified talk control)
+- Terminal 3: python master_dashboard.py (HUD + silent command console)
 ================================================================================
 """
 

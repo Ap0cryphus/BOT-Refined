@@ -1,17 +1,18 @@
 """
-================================================================================
+==============================================================================
 KAEKAE AUDIO WORKER (TERMINAL 2: MICROPHONE & SOUND ENGINE)
-================================================================================
-Dedicated strictly to all audio and voice operations:
-1. Listens to Camfrog room voices via VB-Audio Virtual Cable.
+==============================================================================
+Sole owner of audio + the Camfrog talk button:
+1. Listens to room voices via the VB-Audio Virtual Cable.
 2. Transcribes spoken voice via Whisper STT into audio_transcripts.jsonl.
 3. Detects microphone wake triggers ("kae", "kaekae", "kaebot").
-4. Consumes pending_speech_queue.json to audibly broadcast via Talk button:
-   - Valley Persona (CyGFgkeLSDCTZEzs6B89): Normal tones & !say
-   - Uppity Persona (XDP6lUBFhYCAbkIhMCt5): !diss & roasts
-   - Valley Sexy Persona (zqDzpaf3w8JdUBL9YxSv): Male interactions / flirty
-5. Displays real-time audio volume VU meter and live voice transcriptions!
-================================================================================
+4. Consumes broadcast_queue.json (Terminal 1 !say / Terminal 3) and speaks each
+   item on the Camfrog mic through the VERIFIED talk controller.
+5. Publishes heartbeats so Terminal 3 shows real liveness.
+
+It never types into Camfrog chat: chat lines go to Terminal 1 via chat_outbox.jsonl
+(single chat writer rule).
+==============================================================================
 """
 
 import os
@@ -20,7 +21,9 @@ import time
 import json
 import threading
 
-# Set terminal title
+# Identify ourselves for the talk-state mirror
+os.environ.setdefault("KAEKAE_TERMINAL", "t2")
+
 if sys.platform == "win32":
     import ctypes
     try:
@@ -33,6 +36,7 @@ print("  KAEKAE AUDIO WORKER (TERMINAL 2: SOUND & VOICE ENGINE)")
 print("=" * 76)
 
 from cef_probe import (
+    global_probe,
     global_talk_controller,
     synthesize_speech_to_wav,
     play_wav_to_virtual_cable,
@@ -42,97 +46,163 @@ from cef_probe import (
     get_elevenlabs_api_key
 )
 
-PENDING_SPEECH_FILE = "pending_speech_queue.json"
+try:
+    import kaekae_core as core
+except Exception:
+    core = None
+
 AUDIO_OUTPUT_DEVICE = get_configured_output_device()
 
 print(f"  Target Audio Device  : '{AUDIO_OUTPUT_DEVICE}'")
+if core is not None:
+    _cfg = core.load_config()
+    print(f"  Voice Engine         : {_cfg.get('engine', 'edge')} "
+          f"(persona={_cfg.get('elevenlabs_persona', 'valley')}, "
+          f"qwen_speaker={_cfg.get('qwen_speaker', 'vivian')})")
 api_key = get_elevenlabs_api_key()
 if api_key:
     masked = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "***"
-    print(f"  ElevenLabs Engine    : ACTIVE (Key: {masked})")
-    print(f"    - VALLEY Voice ID  : {ELEVENLABS_VOICES['valley']} (Normal/Sweet)")
-    print(f"    - UPPITY Voice ID  : {ELEVENLABS_VOICES['uppity']} (Diss/Roasts)")
-    print(f"    - SEXY Voice ID    : {ELEVENLABS_VOICES['valley_sexy']} (Male Flirty)")
+    print(f"  ElevenLabs API Key   : ACTIVE (Key: {masked})")
 else:
-    print("  ElevenLabs Engine    : NOT DETECTED (Using Expressive Neural SSML Engine)")
-    print("  To enable ElevenLabs : Add 'elevenlabs_api_key' to config.json")
+    print("  ElevenLabs API Key   : not set (add 'elevenlabs_api_key' to config.json)")
+print("  Chat writes          : OUTBOX mode (Terminal 1 owns the chat box)")
 print("=" * 76 + "\n")
 
+_stop = threading.Event()
+
 def speech_queue_consumer_loop():
-    """Continuously watches pending_speech_queue.json and speaks items on Camfrog mic."""
-    print("[AUDIO WORKER] Speech queue consumer online. Watching for broadcast requests...")
-    while True:
+    """Consumes broadcast tasks and speaks them with a real, reported result."""
+    print("[AUDIO WORKER] Broadcast consumer online.")
+    if global_probe is not None and not getattr(global_probe, "running", False):
         try:
-            if os.path.exists(PENDING_SPEECH_FILE) and os.path.getsize(PENDING_SPEECH_FILE) > 2:
-                items = []
-                try:
-                    with open(PENDING_SPEECH_FILE, "r", encoding="utf-8") as f:
-                        items = json.load(f)
-                except Exception:
-                    time.sleep(0.1)
-                    continue
-
-                if items and isinstance(items, list):
-                    # Pop next speech task
-                    task = items.pop(0)
-                    with open(PENDING_SPEECH_FILE, "w", encoding="utf-8") as f:
-                        json.dump(items, f, indent=2)
-
-                    text = task.get("text", "").strip()
-                    persona = task.get("persona", "valley")
-                    voice = task.get("voice", "en-US-AvaNeural")
-                    rate = task.get("rate", "+12%")
-                    pitch = task.get("pitch", "+16Hz")
-
-                    if text:
-                        print(f"\n[SPEECH QUEUE] Broadcasting: \"{text}\" (Persona: {persona.upper()})...")
-                        if global_talk_controller is not None:
-                            global_talk_controller.speak_and_hold(
-                                text,
-                                voice=voice,
-                                rate=rate,
-                                pitch=pitch,
-                                output_device=AUDIO_OUTPUT_DEVICE,
-                                persona=persona
-                            )
-                        else:
-                            temp_wav = "temp_say_broadcast.wav"
-                            synthesize_speech_to_wav(text, temp_wav, voice=voice, rate=rate, pitch=pitch, persona=persona)
-                            play_wav_to_virtual_cable(temp_wav, AUDIO_OUTPUT_DEVICE)
-                        print(f"[SPEECH QUEUE] Broadcast finished for: \"{text}\"\n")
+            global_probe.start_probe_daemon()
+            print("[AUDIO WORKER] CEF speaker probe started (mic verification needs it).")
         except Exception as e:
-            print(f"[AUDIO WORKER] Speech consumer warning: {e}")
+            print(f"[AUDIO WORKER] Probe start notice: {e}")
 
-        time.sleep(0.2)
+    while not _stop.is_set():
+        task = None
+        if core is not None:
+            try:
+                task = core.pop_broadcast()
+            except Exception as e:
+                print(f"[AUDIO WORKER] Queue read warning: {e}")
+        if not task:
+            time.sleep(0.2)
+            continue
+
+        text = (task.get("text") or "").strip()
+        if not text:
+            continue
+        persona = task.get("persona") or "valley"
+        voice = task.get("voice") or "en-US-AvaNeural"
+        rate = task.get("rate") or "+12%"
+        pitch = task.get("pitch") or "+16Hz"
+        source = task.get("source", "t1")
+
+        print(f"\n[SPEECH QUEUE] Broadcasting: \"{text}\" (persona={persona}, from {source})...")
+
+        result = None
+        if global_talk_controller is not None:
+            try:
+                result = global_talk_controller.speak_and_hold(
+                    text, voice=voice, rate=rate, pitch=pitch,
+                    output_device=AUDIO_OUTPUT_DEVICE, persona=persona,
+                )
+            except Exception as e:
+                print(f"[AUDIO WORKER] Broadcast exception: {e}")
+                result = {"ok": False, "reason": str(e)}
+        else:
+            temp_wav = "temp_say_broadcast.wav"
+            engine = synthesize_speech_to_wav(text, temp_wav, voice=voice,
+                                              rate=rate, pitch=pitch, persona=persona)
+            played = play_wav_to_virtual_cable(temp_wav, AUDIO_OUTPUT_DEVICE) if engine else False
+            result = {"ok": bool(played), "acquired": False, "playback_ok": bool(played),
+                      "engine": engine, "reason": "" if engine else "TTS failed"}
+
+        ok = result.get("ok") if isinstance(result, dict) else bool(result)
+        if isinstance(result, dict):
+            print(f"[SPEECH QUEUE] Result: ok={ok} acquired={result.get('acquired')} "
+                  f"playback={result.get('playback_ok')} engine={result.get('engine')} "
+                  f"speaker={result.get('observed_speaker')!r} attempts={result.get('attempts')}"
+                  + (f" reason={result.get('reason')!r}" if result.get("reason") else ""))
+        print(f"[SPEECH QUEUE] Finished: \"{text}\"\n")
+    print("[AUDIO WORKER] Broadcast consumer stopped.")
+
+
+def control_state_sync_loop(kb):
+    """Mirrors Terminal 1 control flags (bot_state.json) into this process and
+    publishes a heartbeat, so chat !transcribe/!listen affect THIS process too."""
+    last_beat = 0.0
+    while not _stop.is_set():
+        try:
+            if core is not None:
+                if time.time() - last_beat > 5.0:
+                    last_beat = time.time()
+                    core.heartbeat("t2", engine=core.load_config().get("engine", ""))
+
+                if kb is not None:
+                    data = core.read_json("bot_state.json", {}) or {}
+                    st = kb.state
+                    changed = []
+                    for key, attr in (("transcribe_enabled", "transcribe_enabled"),
+                                      ("listening_enabled", "listening_enabled"),
+                                      ("responses_muted", "responses_muted"),
+                                      ("chatty_mode", "chatty_mode")):
+                        if key in data:
+                            new_val = bool(data[key])
+                            with st.lock:
+                                if getattr(st, attr) != new_val:
+                                    setattr(st, attr, new_val)
+                                    changed.append(f"{attr}={new_val}")
+                    if changed:
+                        print(f"[AUDIO WORKER] Adopted control state from Terminal 1: {', '.join(changed)}")
+        except Exception as e:
+            print(f"[AUDIO WORKER] Sync warning: {e}")
+        time.sleep(2.0)
+    print("[AUDIO WORKER] Control-state sync stopped.")
+
 
 def start_room_audio_listener():
-    """Starts listening to Camfrog room audio from VB-Audio Virtual Cable."""
+    """Starts the STT recorder plus the broadcast consumer."""
+    import kaekae_bot as kb
+
+    # Load persisted users/kicks/memory so mic-triggered lookups work here too.
     try:
-        import kaekae_bot
-        print("[AUDIO WORKER] Initializing room microphone recorder & Whisper STT...")
-        # Start queue worker in background thread
-        q_thread = threading.Thread(target=speech_queue_consumer_loop, daemon=True)
-        q_thread.start()
-
-        # Start transcribe hotkey listener (Left-Ctrl + Right-Click, F8)
-        if hasattr(kaekae_bot, "start_transcribe_hotkey_listener"):
-            kaekae_bot.start_transcribe_hotkey_listener()
-
-        # Run audio recorder loop
-        if hasattr(kaekae_bot, "voice_listener_worker"):
-            kaekae_bot.voice_listener_worker()
-        elif hasattr(kaekae_bot, "audio_recorder_loop"):
-            kaekae_bot.audio_recorder_loop()
-        else:
-            print("[AUDIO WORKER ERROR] Neither voice_listener_worker nor audio_recorder_loop found!")
-            speech_queue_consumer_loop()
+        kb.load_all_persisted_data()
+        print("[AUDIO WORKER] Persisted user/memory data loaded.")
     except Exception as e:
-        print(f"[AUDIO WORKER] Listener error: {e}")
-        # If full recorder loop fails, keep queue consumer running
-        speech_queue_consumer_loop()
+        print(f"[AUDIO WORKER] Data load notice: {e}")
+
+    # Terminal 2 must never type into the Camfrog chat box.
+    kb.CHAT_SEND_MODE = "outbox"
+
+    threading.Thread(target=speech_queue_consumer_loop, daemon=True, name="BroadcastConsumer").start()
+    threading.Thread(target=control_state_sync_loop, args=(kb,), daemon=True, name="ControlSync").start()
+
+    try:
+        kb.start_transcribe_hotkey_listener()
+    except Exception as e:
+        print(f"[AUDIO WORKER] Hotkey listener notice: {e}")
+
+    if hasattr(kb, "voice_listener_worker"):
+        kb.voice_listener_worker()
+    else:
+        print("[AUDIO WORKER ERROR] voice_listener_worker not found; queue consumer still running.")
+        while not _stop.is_set():
+            time.sleep(0.5)
+
 
 if __name__ == "__main__":
     try:
         start_room_audio_listener()
     except KeyboardInterrupt:
-        print("\n[AUDIO WORKER] Stopped by user.")
+        pass
+    finally:
+        _stop.set()
+        try:
+            if global_talk_controller is not None:
+                global_talk_controller.release_mic()
+        except Exception:
+            pass
+        print("\n[AUDIO WORKER] Stopped cleanly. Mic released.")
