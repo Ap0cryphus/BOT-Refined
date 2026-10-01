@@ -930,6 +930,8 @@ class CamfrogCEFTalkController:
         self.lock = threading.RLock()
         self._talk_mutex_handle: Optional[int] = None
         self.last_broadcast: Dict[str, Any] = {}
+        self._win_cursor_moved: bool = False
+        self._win_last_xy: Tuple[int, int] = (0, 0)
 
     # ------------------------------------------------------------------
     # Cross-process talk ownership: a Windows named mutex so Terminal 1 and
@@ -1798,6 +1800,58 @@ class CamfrogCEFTalkController:
         state, name, red = self.mic_state()
         flow_txt = "n/a" if red is None else ("%.0f" % red)
         return "%s name=%r flow=%s" % (state, name, flow_txt)
+
+    # ------------------------------------------------------------------
+    # Fast press path. pyautogui costs ~100ms PER CALL (failsafe + screen
+    # queries), so a full press/release cycle was ~300ms - human average, which
+    # loses every mic battle. Raw Win32 input does the same work in ~0.6ms, so
+    # the bot can re-press far faster than any person.
+    # ------------------------------------------------------------------
+    def _win32_cursor_to(self, cx: int, cy: int) -> None:
+        try:
+            if not windll:
+                return
+            sx = windll.user32.GetSystemMetrics(0) or 1
+            sy = windll.user32.GetSystemMetrics(1) or 1
+            windll.user32.SetCursorPos(int(cx), int(cy))
+        except Exception:
+            pass
+
+    def fast_press(self, hold: float = 0.0) -> bool:
+        """One press/release cycle via raw Win32. ~0.6ms. Returns True if sent."""
+        if not windll:
+            return False
+        cx, cy = self.get_talk_coordinates()
+        if not self._win_cursor_moved or self._win_last_xy != (cx, cy):
+            self._win32_cursor_to(cx, cy)
+            self._win_cursor_moved = True
+            self._win_last_xy = (cx, cy)
+            time.sleep(0.02)
+        try:
+            windll.user32.mouse_event(0x0002, 0, 0, 0, 0)   # LEFTDOWN
+            if hold > 0:
+                time.sleep(hold)
+            windll.user32.mouse_event(0x0004, 0, 0, 0, 0)   # LEFTUP
+        except Exception:
+            return False
+        self.active_method = "win32_fast"
+        return True
+
+    def fast_press_hold(self) -> bool:
+        """Press and LEAVE held (for winning, then speak, then release)."""
+        if not windll:
+            return False
+        cx, cy = self.get_talk_coordinates()
+        self._win32_cursor_to(cx, cy)
+        self._win_last_xy = (cx, cy)
+        self._win_cursor_moved = True
+        try:
+            windll.user32.mouse_event(0x0002, 0, 0, 0, 0)
+        except Exception:
+            return False
+        self.active_method = "win32_fast"
+        self.is_holding = True
+        return True
 
     def _log_grab_ok(self, method: str, cx: int, cy: int,
                      started: float, how: str) -> None:

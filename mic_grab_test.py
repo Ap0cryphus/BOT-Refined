@@ -33,6 +33,7 @@ def main() -> int:
     ap.add_argument("--gap", type=float, default=0.12)
     ap.add_argument("--hold", type=float, default=0.5,
                     help="seconds the dark/OPEN state must persist to count as a real grab")
+    ap.add_argument("--fast", action="store_true", help="continuous re-press battle mode")
     ap.add_argument("--no-audio", action="store_true")
     ap.add_argument("--voice", default="en-US-AvaNeural")
     args = ap.parse_args()
@@ -120,6 +121,51 @@ def main() -> int:
             "button=%s) at %.2fs" % ("n/a" if flow_red is None else round(flow_red, 1),
                                      btn_now, time.time() - start))
         time.sleep(args.gap)
+
+    # ---- FAST BATTLE MODE -------------------------------------------------
+    # Re-press as fast as Win32 allows (7ms, ~137/sec) while polling the cheap
+    # audio-flow indicator. OCR only runs once flow is actually active, so the
+    # expensive identity check is paid on the win path, not every iteration.
+    if args.fast:
+        tc.focus_camfrog()
+        time.sleep(0.15)
+        log("FAST MODE: re-pressing continuously, checking flow every poll")
+        polls = 0
+        flow_presses = 0
+        win_at = None
+        t0 = time.time()
+        while time.time() - t0 < args.wait and flow_presses < args.attempts * 40:
+            tc.fast_press(0.0)
+            flow_presses += 1
+            polls += 1
+            if polls % 3:          # ~21ms of pressing between checks
+                continue
+            red = tc.read_audio_flow()
+            if red is None or red >= 110:
+                continue
+            owned, _r, nm = tc.confirm_we_own_the_mic()
+            log("  flow=%.1f  speaker=%r  owned=%s  (presses=%d t=%.2fs)"
+                % (red, nm, owned, flow_presses, time.time() - t0))
+            if owned:
+                win_at = time.time() - t0
+                method = "win32_fast"
+                held = True
+                break
+        result = {
+            "held": held, "method": method, "tries": flow_presses,
+            "fast_mode": True, "presses": flow_presses,
+            "time_to_grab_s": round(win_at if win_at else time.time() - t0, 2),
+            "coords": tc.get_talk_coordinates(),
+        }
+        if held:
+            log("GRAB OK (fast) - %d presses in %.2fs" % (flow_presses, win_at))
+        else:
+            log("GRAB FAILED (fast) after %d presses" % flow_presses)
+        tc.release_mic()
+        result["released"] = bool(True)
+        result["ok"] = held
+        print(json.dumps(result, indent=1))
+        return 0 if held else 1
 
     result = {
         "held": held, "method": method, "tries": tries,
