@@ -105,6 +105,44 @@ def _bot_display_names() -> list:
     return ["kaekae", "kaekae_toad", "kaekaebot-camfrogaiassistant"]
 
 
+def is_bot_name_strict(text: str) -> bool:
+    """Ownership-grade identity check for the active-speaker bubble.
+
+    is_bot_name() is a loose substring match and is right for CHAT filtering,
+    where seeing our name anywhere in the message is fine. It is WRONG for
+    claiming a microphone. During a battle the bubble renders several names
+    run together - a real capture returned 'KaeKaeToadgiShtickie', our name
+    glued to $htickie's - and a substring match happily returns True even when
+    the rival owns the mic and ours is merely a leftover.
+
+    Camfrog lists our own name FIRST, so this anchors on the leading token and
+    requires that token to genuinely start with one of our display names.
+    'kaekae' being a configured alias is what makes the OCR variants
+    (KaeKaeToad, KaeKae Toad, kaekaetoad, SkaekaeToad) all resolve."""
+    if not text:
+        return False
+    low = str(text).strip().lower()
+    if not low:
+        return False
+    # strip currency/role glyphs OCR turns $ into S or similar
+    cleaned = re.sub(r"^[^a-z]+", "", low)
+    first = re.split(r"[^a-z0-9]+", cleaned)[0] if cleaned else ""
+    if not first:
+        return False
+    # OCR sometimes renders a leading glyph as a letter ('$htickie' came back
+    # as 'Shtickie'), so also try the token with one stray leading char dropped.
+    # This cannot manufacture a false positive: the remainder must still be
+    # anchored to the START of a configured name, and a rival's name leading
+    # the bubble will not match after one character.
+    candidates = [first] + ([first[1:]] if len(first) > 1 and not first[0].isdigit() else [])
+    for cand in candidates:
+        for bot in _bot_display_names():
+            b = re.sub(r"[^a-z0-9]+", "", str(bot).lower())
+            if b and cand.startswith(b):
+                return True
+    return False
+
+
 def is_bot_name(name: str) -> bool:
     """True when `name` is one of KaeKae's own display names."""
     if not name:
@@ -1757,7 +1795,7 @@ class CamfrogCEFTalkController:
         red = None
         for _ in range(max(1, need_consecutive)):
             name = self.read_speaker_name()
-            if name and is_bot_name(name):
+            if name and is_bot_name_strict(name):
                 hits += 1
             else:
                 hits = 0
