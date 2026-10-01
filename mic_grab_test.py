@@ -49,6 +49,7 @@ def main() -> int:
     except ImportError as e:
         log(f"cannot import cef_probe: {e}")
         return 2
+    cp_module = cp
 
     tc = cp.global_talk_controller
     cp.global_probe.start_probe_daemon()
@@ -157,7 +158,18 @@ def main() -> int:
                     log("  mic is FREE (%s) - pressing and HOLDING" % st)
                     tc.fast_press_hold()
                     flow_presses += 1
-                    time.sleep(0.10)
+                    time.sleep(0.15)
+                    # Camfrog only shows a name in the bubble while audio is
+                    # actually flowing, so a silent hold shows nothing. Start
+                    # the audio BEFORE checking, or the name never appears.
+                    _th = None
+                    if not args.no_audio:
+                        import threading as _t
+                        _th = _t.Thread(target=lambda: cp_module.play_wav_to_virtual_cable(
+                            "temp_say_broadcast.wav", cp_module.get_configured_output_device()),
+                            daemon=True)
+                        _th.start()
+                        time.sleep(0.25)
                     owned, _r2, nm2 = tc.confirm_we_own_the_mic()
                     log("  after hold: speaker=%r owned=%s" % (nm2, owned))
                     if owned:
@@ -165,6 +177,8 @@ def main() -> int:
                         method = "win32_fast"
                         held = True
                         break
+                    if _th is not None:
+                        _th.join(timeout=1)
                     tc.release_mic()
                     time.sleep(0.05)
                     continue

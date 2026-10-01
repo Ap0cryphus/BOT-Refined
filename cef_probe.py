@@ -1740,49 +1740,51 @@ class CamfrogCEFTalkController:
             return ""
         return re.sub(r"[^A-Za-z0-9_$\-]", "", raw)
 
-    def confirm_we_own_the_mic(self, need_consecutive: int = 2):
-        """True only when OUR name is in the bubble AND the flow icon is lit.
+    def confirm_we_own_the_mic(self, need_consecutive: int = 2, use_flow: bool = False):
+        """True when OUR name is in the active-speaker bubble.
 
-        Camfrog keeps our name in the bubble for only ~1/3s after a win, and
-        another queued name can flash in during a battle, so a single sample can
-        be misleading. Requiring the win state to repeat costs a few tens of ms
-        and removes the transient-name false positive.
+        Identity - not the flow icon - is the authority here. Measured live:
+        our own transmission reads flow red ~113-120 while a HUMAN holding the
+        mic reads ~58-73, so the flow metric does NOT separate us from them and
+        must not gate the decision. The name bubble is unambiguous: while the
+        bot held the mic and played audio it read 'KaeKaeToad' stably on every
+        sample across 3 seconds.
 
-        Returns (owned, flow_red, name)."""
-        seen = []
+        The name is required to repeat on consecutive samples, because a queued
+        rival's name can flash through during a battle."""
+        hits = 0
+        name = ""
+        red = None
         for _ in range(max(1, need_consecutive)):
-            state, name, red = self.mic_state()
-            seen.append(state)
-            if state != "ours_active":
+            name = self.read_speaker_name()
+            if name and is_bot_name(name):
+                hits += 1
+            else:
+                hits = 0
                 if _core is not None:
                     try:
                         _core.log_event("talk", action="mic_owner_check", owned=False,
-                                        state=state, speaker_name=name[:40],
-                                        flow_red=round(red, 1) if red else None)
+                                        speaker_name=name[:40] or "(none)")
                     except Exception:
                         pass
+                if use_flow:
+                    red = self.read_audio_flow()
                 return False, red, name
+            if hits >= need_consecutive:
+                break
             time.sleep(0.05)
-        name = self.read_speaker_name()
-        red = self.read_audio_flow()
-        if _core is not None:
-            try:
-                _core.log_event("talk", action="mic_owner_check", owned=True,
-                                state="ours_active", speaker_name=name[:40],
-                                flow_red=round(red, 1) if red else None)
-            except Exception:
-                pass
-        return True, red, name
+        if hits >= need_consecutive:
+            red = self.read_audio_flow()
+            if _core is not None:
+                try:
+                    _core.log_event("talk", action="mic_owner_check", owned=True,
+                                    speaker_name=name[:40],
+                                    flow_red=round(red, 1) if red else None)
+                except Exception:
+                    pass
+            return True, red, name
+        return False, red, name
 
-    # ------------------------------------------------------------------
-    # Combined mic state. The two indicators together describe the whole
-    # battle lifecycle, which neither can do alone:
-    #   flow icon  = sound is moving (says nothing about WHO)
-    #   name bubble= who is queued/holding (says nothing about sound)
-    # Camfrog only shows a name once a user has one, and after a win our name
-    # persists ~1/3s before the bubble changes - so a win is only real when our
-    # name is in the bubble AND the flow icon is lit.
-    # ------------------------------------------------------------------
     def mic_state(self):
         """Returns (state, name, flow_red). States:
             idle | queued_ours | ours_active | queued_other | other_active
