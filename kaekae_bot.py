@@ -3664,6 +3664,26 @@ Keep under 250 characters!
         )
         print(f"[CAPTURE] nodes={len(nodes)} bangs={len(bangs)} parsed={len(parsed_now)} hits={hit[-5:]}")
 
+    if re.match(r'^!micstate$', raw_msg, re.IGNORECASE):
+        if not is_authorized_user(clean_user):
+            send_chat_message(f"@{clean_user}, !micstate is reserved for authorized creators.", override_mute=True)
+            return
+        try:
+            from cef_probe import global_talk_controller as _tc
+        except Exception as e:
+            send_chat_message(f"Talk controller unavailable: {e}", override_mute=True)
+            return
+        if _tc is None:
+            send_chat_message("Talk controller is NOT initialised.", override_mute=True)
+            return
+        try:
+            desc = _tc.describe_mic_state()
+        except Exception as e:
+            send_chat_message(f"Mic state read failed: {e}", override_mute=True)
+            return
+        send_chat_message(f"Mic: {desc}", override_mute=True)
+        print(f"[MIC STATE] {desc}")
+
     # 12y. Talk-control / mic diagnostics (Authorized Only)
     if re.match(r'^!talkid$', raw_msg, re.IGNORECASE) or re.match(r'^!talkstatus$', raw_msg, re.IGNORECASE):
         if not is_authorized_user(clean_user):

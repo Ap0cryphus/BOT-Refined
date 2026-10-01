@@ -1737,23 +1737,67 @@ class CamfrogCEFTalkController:
             return ""
         return re.sub(r"[^A-Za-z0-9_$\-]", "", raw)
 
-    def confirm_we_own_the_mic(self):
-        """True only when sound is flowing AND the name bubble is one of ours.
+    def confirm_we_own_the_mic(self, need_consecutive: int = 2):
+        """True only when OUR name is in the bubble AND the flow icon is lit.
+
+        Camfrog keeps our name in the bubble for only ~1/3s after a win, and
+        another queued name can flash in during a battle, so a single sample can
+        be misleading. Requiring the win state to repeat costs a few tens of ms
+        and removes the transient-name false positive.
 
         Returns (owned, flow_red, name)."""
-        ok, red = self.confirm_audio_flow()
-        if not ok:
-            return False, red, ""
+        seen = []
+        for _ in range(max(1, need_consecutive)):
+            state, name, red = self.mic_state()
+            seen.append(state)
+            if state != "ours_active":
+                if _core is not None:
+                    try:
+                        _core.log_event("talk", action="mic_owner_check", owned=False,
+                                        state=state, speaker_name=name[:40],
+                                        flow_red=round(red, 1) if red else None)
+                    except Exception:
+                        pass
+                return False, red, name
+            time.sleep(0.05)
         name = self.read_speaker_name()
-        owned = bool(name) and is_bot_name(name)
+        red = self.read_audio_flow()
         if _core is not None:
             try:
-                _core.log_event("talk", action="mic_owner_check", owned=owned,
-                                speaker_name=name[:40],
+                _core.log_event("talk", action="mic_owner_check", owned=True,
+                                state="ours_active", speaker_name=name[:40],
                                 flow_red=round(red, 1) if red else None)
             except Exception:
                 pass
-        return owned, red, name
+        return True, red, name
+
+    # ------------------------------------------------------------------
+    # Combined mic state. The two indicators together describe the whole
+    # battle lifecycle, which neither can do alone:
+    #   flow icon  = sound is moving (says nothing about WHO)
+    #   name bubble= who is queued/holding (says nothing about sound)
+    # Camfrog only shows a name once a user has one, and after a win our name
+    # persists ~1/3s before the bubble changes - so a win is only real when our
+    # name is in the bubble AND the flow icon is lit.
+    # ------------------------------------------------------------------
+    def mic_state(self):
+        """Returns (state, name, flow_red). States:
+            idle | queued_ours | ours_active | queued_other | other_active
+        """
+        name = self.read_speaker_name()
+        red = self.read_audio_flow()
+        flow = (red is not None and red < self._flow_red_threshold)
+        if not name:
+            return "idle", "", red
+        ours = is_bot_name(name)
+        if ours:
+            return ("ours_active" if flow else "queued_ours"), name, red
+        return ("other_active" if flow else "queued_other"), name, red
+
+    def describe_mic_state(self) -> str:
+        state, name, red = self.mic_state()
+        flow_txt = "n/a" if red is None else ("%.0f" % red)
+        return "%s name=%r flow=%s" % (state, name, flow_txt)
 
     def _log_grab_ok(self, method: str, cx: int, cy: int,
                      started: float, how: str) -> None:
