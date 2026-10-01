@@ -12,5 +12,11 @@
   "talk_button": {
     "x": 1331,
     "y": 565
+  },
+  "audio_flow_region": {
+    "left": 1358,
+    "top": 548,
+    "width": 96,
+    "height": 34
   }
 }

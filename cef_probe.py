@@ -1488,10 +1488,39 @@ class CamfrogCEFTalkController:
                     pass
             time.sleep(0.03 + 0.012 * (attempts % 5))  # 30-90ms jitter
 
-        # Pixel verification: the Talk button renders visibly darker while held
-        # (measured idle 151.69 -> open 138.48). A press is only accepted as open
-        # if that measurement confirms it, which removes the false positives that
-        # previously came from assuming a dispatched press was a held press.
+        # GROUND TRUTH: sound flowing into the room. The Talk button's own pixels
+        # stay dark for ~2s even when the room awards the mic to somebody else
+        # (measured during a real battle), so the button cannot decide a win. The
+        # green audio-flow icon CAN, and it costs ~76ms - fast enough to beat a
+        # human. A press counts as won only when flow is actually confirmed.
+        flow_ok, flow_red, flow_name = self.confirm_we_own_the_mic()
+        if flow_ok and attempts > 0 and used:
+            verdict = {
+                "ok": True,
+                "attempts": attempts,
+                "patterns": used,
+                "method": self.active_method,
+                "observed_speaker": observed,
+                "stability_seconds": 0.0,
+                "required_seconds": stable_s,
+                "speaker_confirmed": False,
+                "pixel_verified": self.is_talk_button_open(idle_avg),
+                "audio_flow_confirmed": True,
+                "flow_red": round(flow_red, 1) if flow_red else None,
+                "speaker_name": flow_name,
+                "idle_avg": idle_avg,
+                "reason": "audio flow confirmed AND the speaker name is ours",
+            }
+            if _core is not None:
+                _core.log_event("talk", action="acquired_audio_flow", **verdict)
+                _core.set_talk_state(self._terminal_id(), True,
+                                     method=self.active_method, observed="audio_flow")
+            print(f"[CEF TALK CONTROLLER] ACQUIRED (audio-flow confirmed) after "
+                  f"{attempts} press(es) via {self.active_method}: flow_red={flow_red:.1f}")
+            return verdict
+
+        # Pixel-only fallback: the button is rendering pressed, but we could not
+        # prove sound is flowing. Kept as a soft signal, never as a win.
         if allow_unverified and attempts > 0 and used:
             if self.is_talk_button_open(idle_avg):
                 avg_now, _h = self.read_talk_button_state()
@@ -1628,6 +1657,103 @@ class CamfrogCEFTalkController:
             except Exception:
                 pass
         return idle
+
+    # ------------------------------------------------------------------
+    # Audio-flow indicator: the ground truth for "we actually won the mic".
+    # Camfrog renders a green mic icon whose SATURATION changes with whether
+    # sound is flowing into the room. Measured on a live mic battle:
+    #   we hold it (sound flowing) -> green px RGB ~(66,208, 95), red ~65
+    #   someone else holds it     -> green px RGB ~(150,220,165), red ~150
+    # Only the red/blue channels move; green sits at ~210 in both. This is a
+    # single 96x34 screenshot, so it costs ~5ms and needs no OCR at all.
+    # ------------------------------------------------------------------
+    _flow_red_threshold = 110.0
+    _flow_ok_streak: int = 0
+
+    def read_audio_flow(self):
+        """Mean red channel of the green pixels in the audio-flow region.
+
+        Lower (more saturated) == sound is flowing through OUR mic."""
+        if not pyautogui:
+            return None
+        reg = (self.coords or {}).get("audio_flow_region")
+        if not isinstance(reg, dict):
+            return None
+        try:
+            im = pyautogui.screenshot(region=(int(reg["left"]), int(reg["top"]),
+                                              int(reg["width"]), int(reg["height"])))
+        except Exception:
+            return None
+        try:
+            px = im.convert("RGB").load()
+        except Exception:
+            return None
+        w, h = im.size
+        reds = []
+        for yy in range(h):
+            for xx in range(w):
+                r, g, b = px[xx, yy]
+                if (g - r) > 25 and (g - b) > 10:
+                    reds.append(r)
+        if not reds:
+            return None
+        return sum(reds) / len(reds)
+
+    def confirm_audio_flow(self, samples: int = 3, gap: float = 0.02):
+        """True when sound is confirmed flowing, using a short streak so the
+        icon's built-in animation cannot produce a false positive."""
+        hits = 0
+        red = None
+        for _ in range(max(1, samples)):
+            red = self.read_audio_flow()
+            if red is not None and red < self._flow_red_threshold:
+                hits += 1
+            else:
+                hits = 0
+            if hits >= 2:
+                break
+            time.sleep(gap)
+        if red is not None:
+            self._flow_ok_streak = hits
+        return hits >= 2, red
+
+    def read_speaker_name(self):
+        """OCR the active-speaker name bubble (only called on a claimed win).
+
+        The audio-flow icon proves sound is moving, not that it is OURS - when a
+        human holds the mic the icon reads identically. Identity comes only from
+        this bubble, so it is read lazily: the cheap 29ms flow check runs
+        constantly, and this 77ms cost is paid just to confirm a win."""
+        reg = (self.coords or {}).get("active_speaker_ocr_region")
+        if not reg or not pyautogui:
+            return ""
+        try:
+            import pytesseract
+            im = pyautogui.screenshot(region=(int(reg["left"]), int(reg["top"]),
+                                              int(reg["width"]), int(reg["height"])))
+            im = im.resize((im.width * 3, im.height * 3))
+            raw = pytesseract.image_to_string(im, config="--psm 7").strip()
+        except Exception:
+            return ""
+        return re.sub(r"[^A-Za-z0-9_$\-]", "", raw)
+
+    def confirm_we_own_the_mic(self):
+        """True only when sound is flowing AND the name bubble is one of ours.
+
+        Returns (owned, flow_red, name)."""
+        ok, red = self.confirm_audio_flow()
+        if not ok:
+            return False, red, ""
+        name = self.read_speaker_name()
+        owned = bool(name) and is_bot_name(name)
+        if _core is not None:
+            try:
+                _core.log_event("talk", action="mic_owner_check", owned=owned,
+                                speaker_name=name[:40],
+                                flow_red=round(red, 1) if red else None)
+            except Exception:
+                pass
+        return owned, red, name
 
     def _log_grab_ok(self, method: str, cx: int, cy: int,
                      started: float, how: str) -> None:

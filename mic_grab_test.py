@@ -80,19 +80,26 @@ def main() -> int:
         except Exception as e:
             log(f"press {pattern} raised {e}")
             ok = False
-        # PIXEL VERIFIED: a dispatched press is not a held press.
+        # GROUND TRUTH: is sound actually flowing into the room? The Talk
+        # button's own pixels cannot decide this - they stay dark even when the
+        # room awards the mic to somebody else.
         if ok:
-            time.sleep(0.12)
-            is_open = tc.is_talk_button_open(idle_avg)
+            time.sleep(0.10)
+            is_open, flow_red = tc.confirm_audio_flow(samples=3, gap=0.02)
+            if is_open:
+                _own, _red, _nm = tc.confirm_we_own_the_mic()
+                if not _own:
+                    is_open = False
+                    log("    (flow is active but the speaker is %r - not us)" % _nm)
         else:
-            is_open = False
+            is_open, flow_red = False, None
         if is_open:
             # PERSISTENCE: the dark reading can just mean "button is rendering
             # pressed" while the room still awards the mic to someone else, so
             # require the dark state to hold continuously before accepting.
             t_dark = time.time()
             while time.time() - t_dark < args.hold:
-                if not tc.is_talk_button_open(idle_avg):
+                if not tc.confirm_we_own_the_mic()[0]:
                     is_open = False
                     log(f"  persistence broken after {time.time()-t_dark:.2f}s - "
                         f"the room took the mic back")
@@ -103,19 +110,21 @@ def main() -> int:
             held = True
             method = tc.active_method
             elapsed = time.time() - start
-            avg_now, _ = tc.read_talk_button_state()
-            log(f"attempt {tries}: {pattern} -> PIXEL-VERIFIED OPEN via {method} "
-                f"(idle={idle_avg} held={avg_now}) after {elapsed:.2f}s")
+            btn_now, _ = tc.read_talk_button_state()
+            log(f"attempt {tries}: {pattern} -> AUDIO FLOW CONFIRMED via {method} "
+                f"(flow_red={flow_red:.1f}, button={btn_now}) after {elapsed:.2f}s")
             time.sleep(0.10)
             break
-        avg_now, _ = tc.read_talk_button_state()
-        log(f"attempt {tries}: {pattern} -> not open (button avg={avg_now}, "
-            f"open needs <=143) at {time.time()-start:.2f}s")
+        btn_now, _ = tc.read_talk_button_state()
+        log(f"attempt {tries}: {pattern} -> no flow (flow_red=%s needs <110, "
+            "button=%s) at %.2fs" % ("n/a" if flow_red is None else round(flow_red, 1),
+                                     btn_now, time.time() - start))
         time.sleep(args.gap)
 
     result = {
         "held": held, "method": method, "tries": tries,
         "idle_avg": tc._talk_press_state.get("idle_avg"),
+        "flow_red": round(flow_red, 1) if flow_red else None,
         "time_to_grab_s": round(time.time() - start, 2),
         "coords": tc.get_talk_coordinates(),
         "phrase": "" if args.no_audio else args.phrase,
