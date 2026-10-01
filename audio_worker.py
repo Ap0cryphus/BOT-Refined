@@ -337,6 +337,7 @@ def control_state_sync_loop(kb):
                     st = kb.state
                     changed = []
                     for key, attr in (("transcribe_enabled", "transcribe_enabled"),
+                                      ("transcript_echo_enabled", "transcript_echo_enabled"),
                                       ("listening_enabled", "listening_enabled"),
                                       ("responses_muted", "responses_muted"),
                                       ("chatty_mode", "chatty_mode")):

@@ -451,6 +451,7 @@ def run_tests():
 
     # --- T20: presence - join/quit notices -------------------------------
     import presence as pres
+    p = pres
     for raw, act, who in (
             ("Join: tajnysmiral", "join", "tajnysmiral"),
             ("Quit: tajnysmiral", "quit", "tajnysmiral"),
@@ -618,6 +619,62 @@ def run_tests():
     with st.lock:
         st.room_users_by_room = {}
         st.current_room_users = set()
+
+    # --- T27: transcript echo is separate from transcription -------------
+    # REGRESSION: the stale-trigger window was 90s while Camfrog's chat clock ran
+    # ~3 minutes behind the PC, so a LIVE !transcribed was dropped 28 times as
+    # "stale" and the room kept being spammed. The window must be far wider
+    # than any plausible clock skew.
+    # The suite redirects core.CONFIG_PATH to a scratch dir, so the real
+    # config.json value is invisible here. Seed the production default instead:
+    # this test exists to stop the window ever being narrowed back to a value
+    # that cannot absorb clock skew.
+    core.save_config({"trigger_max_age_s": 600}, announce=False)
+    check("stale: window is wide enough to survive clock skew",
+          float(core.load_config(force=True).get("trigger_max_age_s", 0)) >= 300,
+          str(core.load_config(force=True).get("trigger_max_age_s")))
+    three_min_old = (_dt.datetime.now() - _dt.timedelta(minutes=3)).strftime("%I:%M %p")
+    check("stale: a 3-minute-old line is NOT dropped (the live regression)",
+          not trigger_is_stale(three_min_old, 600), "dropped a live command")
+    check("stale: age is reportable for diagnostics",
+          isinstance(kb.chat_timestamp_age_seconds(three_min_old), float))
+    check("stale: unparseable age reports None, not a crash",
+          kb.chat_timestamp_age_seconds("nonsense") is None)
+
+    with kb.state.lock:
+        kb.state.transcribe_enabled = True
+        kb.state.transcript_echo_enabled = True
+        kb.state.listening_enabled = True
+    kb.claim_and_dispatch("b3_d33", "10:35 AM", "!transcribed",
+                          source="test", trusted=True)
+    with kb.state.lock:
+        check("echo: !transcribed keeps STT running",
+              kb.state.transcribe_enabled is True)
+        check("echo: !transcribed turns the chat echo off",
+              kb.state.transcript_echo_enabled is False)
+    kb.claim_and_dispatch("b3_d33", "10:36 AM", "!transcribe",
+                          source="test", trusted=True)
+    with kb.state.lock:
+        check("echo: !transcribe restores the echo",
+              kb.state.transcript_echo_enabled is True)
+        check("echo: !transcribe keeps STT on",
+              kb.state.transcribe_enabled is True)
+
+    # --- T28: speaker identity pool spans rooms and profiles ------------
+    with kb.state.lock:
+        kb.state.room_users_by_room = {"RoomA": {"shtickie": 1.0},
+                                       "RoomB": {"tajnysmiral": 1.0}}
+        kb.state.current_room_users = {"shtickie"}
+        kb.state.current_focused_room = "RoomA"
+    pool = {u.lower() for u in kb.known_speaker_identities()}
+    check("speaker: includes a user from the current room", "shtickie" in pool)
+    check("speaker: includes a user seen only in ANOTHER room",
+          "tajnysmiral" in pool, str(sorted(pool)))
+    check("speaker: never includes a clock", not any(
+        p.looks_like_clock(u) for u in kb.known_speaker_identities()))
+    with kb.state.lock:
+        kb.state.room_users_by_room = {}
+        kb.state.current_room_users = set()
 
     print("\n" + "=" * 60)
     if FAILS:

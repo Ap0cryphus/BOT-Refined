@@ -97,6 +97,6 @@
   "talk_quiet_timeout_s": 15.0,
   "talk_min_audio_fraction": 0.5,
   "qwen_language": "English",
-  "trigger_max_age_s": 90,
+  "trigger_max_age_s": 600,
   "broadcast_gap_seconds": 2.5
 }

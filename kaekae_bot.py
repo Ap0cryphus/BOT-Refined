@@ -319,6 +319,16 @@ class BotState:
         # Operational Mode Flags
         self.listening_enabled = True      # Startup: ON (!listen / !mute)
         self.transcribe_enabled = True     # Startup: ON (!transcribe / !transcribed)
+        # Speech-to-text and the CHAT ECHO are separate concerns:
+        #   transcribe_enabled      -> keep running Whisper STT and keep writing
+        #                              audio_transcripts.jsonl / the pending queue
+        #                              (all captured data is kept either way)
+        #   transcript_echo_enabled -> whether those transcripts are POSTED to
+        #                              the Camfrog chat box
+        # !transcribe turns STT on with echo on; !transcribed turns ONLY the chat
+        # echo off, so the room stops being spammed while the bot keeps hearing,
+        # transcribing and storing everything.
+        self.transcript_echo_enabled = True
         self.voice_enabled = False         # Startup: OFF
         self.chatty_mode = False           # Startup: OFF (!chat / !chat off)
         self.repeat_mode = False           # Startup: OFF
@@ -427,6 +437,16 @@ def parse_chat_timestamp(ts: str) -> Optional[datetime]:
         except Exception:
             continue
     return None
+
+
+def chat_timestamp_age_seconds(timestamp: str) -> Optional[float]:
+    """How many seconds old a Camfrog chat timestamp reads as, or None if the
+    clock is unreadable. Exposed so the stale-command log can show the actual
+    computed age instead of only a pass/fail verdict."""
+    parsed = parse_chat_timestamp(timestamp)
+    if parsed is None:
+        return None
+    return (datetime.now() - parsed).total_seconds()
 
 
 def trigger_is_stale(timestamp: str, max_age_s: float) -> bool:
@@ -719,6 +739,7 @@ def save_bot_runtime_state():
         data = {
             "listening_enabled": state.listening_enabled,
             "transcribe_enabled": state.transcribe_enabled,
+            "transcript_echo_enabled": state.transcript_echo_enabled,
             "chatty_mode": state.chatty_mode,
             "bot_tone": state.bot_tone,
             "voice_enabled": state.voice_enabled,
@@ -758,6 +779,8 @@ def load_bot_runtime_state():
             with open(STATE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             with state.lock:
+                if "transcript_echo_enabled" in data:
+                    state.transcript_echo_enabled = bool(data["transcript_echo_enabled"])
                 if "transcribe_enabled" in data:
                     state.transcribe_enabled = bool(data["transcribe_enabled"])
                 if "listening_enabled" in data:
@@ -1717,12 +1740,17 @@ def audio_transcription_worker():
                 send_chat_message(wake_reply, override_mute=True)
                 continue
 
-            # If Transcribe is ON or Repeat Mode is ON, echo speech to Camfrog chat
+            # Echo to Camfrog chat is separate from transcription itself.
+            # transcribe_enabled stays ON when only the echo is turned off, so
+            # Whisper keeps running and every clip is still written to
+            # audio_transcripts.jsonl and the pending queue. Nothing is lost by
+            # muting the room.
             with state.lock:
                 transcribe_on = state.transcribe_enabled
+                echo_on = state.transcript_echo_enabled
                 repeat_on = state.repeat_mode
 
-            if transcribe_on or repeat_on:
+            if transcribe_on and (echo_on or repeat_on):
                 safe_spk = speaker if (speaker and is_valid_camfrog_username(speaker)) else "Unknown speaker"
                 ts_formatted = format_bot_timestamp()
                 chat_transcript = f"[MIC] {safe_spk} {ts_formatted}: {clean_text}"
@@ -2046,20 +2074,75 @@ def load_calibrated_stage_coordinates() -> Optional[Dict[str, Any]]:
                 pass
     return None
 
+def known_speaker_identities() -> List[str]:
+    """Every username the bot could legitimately resolve a speaker against.
+
+    This used to be just the current room, and before that a single flat set
+    that accumulated for 30 minutes. Both were too narrow once the roster panel
+    could no longer be read through UIA: the only source left was people who had
+    CHATTED, so anyone who spoke without typing resolved to "Unknown speaker".
+
+    The pool is now the union of:
+      * users seen in the CURRENT room
+      * users seen in ANY other room (a user is often in two rooms at once)
+      * everyone in the chat-history profile store
+      * names the roster panel confirmed in presence.json
+
+    Identity comes from the bubble OCR fragment, so a WIDER pool strictly
+    increases the chance of a correct match. The resolvers still require a
+    match, and junk is still rejected, so this cannot invent a name."""
+    pool: List[str] = []
+    seen = set()
+
+    def _add(value):
+        name = str(value or "").strip()
+        if not name or len(name) > 35:
+            return
+        if name.lower() in seen:
+            return
+        if _presence is not None and _presence.is_junk_panel_token(name):
+            return
+        if name.lower() in IGNORED_USERS or name.lower() in BOT_ALT_USERNAMES:
+            return
+        if not is_valid_camfrog_username(name):
+            return
+        seen.add(name.lower())
+        pool.append(name)
+
+    with state.lock:
+        for u in state.current_room_users:
+            _add(u)
+        for bucket in state.room_users_by_room.values():
+            for u in bucket.keys():
+                _add(u)
+        for u in state.users.keys():
+            _add(u)
+
+    # presence.json holds the roster-panel snapshot, which is the only source
+    # for a person who is present but has never said anything.
+    try:
+        store = _presence_store_locked() if _presence is not None else {}
+        for entry in (store.get("rooms") or {}).values():
+            if not isinstance(entry, dict):
+                continue
+            for rec in (entry.get("users") or {}).values():
+                if isinstance(rec, dict):
+                    _add(rec.get("name"))
+    except Exception:
+        pass
+    return pool
+
+
 def find_active_speaker(win) -> str:
     """
     Finds the active microphone speaker's username using Chromium UIA inspection.
     CEF-only: text/node labels adjacent to the Talk button are resolved against
-    active room members (e.g. 'OMGitsMyPHONE').
+    known room members (e.g. 'OMGitsMyPHONE').
     """
     if not win:
         return "Unknown speaker"
 
-    with state.lock:
-        room_users = list(state.current_room_users)
-        known_users = [u for u in room_users if is_valid_camfrog_username(u)]
-        if not known_users:
-            known_users = [u for u in state.users.keys() if is_valid_camfrog_username(u)]
+    known_users = known_speaker_identities()
 
     def _resolve_against_room_users(candidate: str) -> Optional[str]:
         if not candidate or len(candidate) < 2:
@@ -3546,27 +3629,32 @@ def claim_and_dispatch(clean_user: str, timestamp: str, message: str,
         return False
 
     # Trigger freshness. Camfrog re-renders the entire visible chat history on
-    # every scan, so a `!say` posted minutes ago is still on screen and is
-    # re-read forever. Acting on it means the bot joins a room and immediately
-    # fires commands that were never aimed at this session, so a command older
-    # than `trigger_max_age_s` is consumed and dropped.
+    # every scan, so a command from before we joined is still on screen and is
+    # re-read forever; acting on it means firing commands that were never aimed
+    # at this session.
     #
-    # This is deliberately separate from the one-hour no-repeat gate: that gate
-    # is persistent across restarts and only knows what the bot has already
-    # SAID, not how old an incoming command is.
+    # The window must be GENEROUS. This compares Camfrog's own chat clock against
+    # the PC clock, and those two are not synchronised: measured live, the room
+    # clock ran ~3 minutes BEHIND the PC, which silently discarded 28 copies of
+    # a live !transcribed as "stale". A tight window turns any clock skew into a
+    # total command blackout. Set trigger_max_age_s to 0 to disable entirely.
     if is_cmd and not trusted:
         try:
-            max_age = float(_core.load_config().get("trigger_max_age_s", 90)) \
-                if _core is not None else 90.0
+            max_age = float(_core.load_config().get("trigger_max_age_s", 600)) \
+                if _core is not None else 600.0
         except Exception:
-            max_age = 90.0
-        if trigger_is_stale(timestamp, max_age):
+            max_age = 600.0
+        if max_age > 0 and trigger_is_stale(timestamp, max_age):
+            age = chat_timestamp_age_seconds(timestamp)
             print(f"[TRIGGER] Ignoring stale command from chat "
-                  f"({timestamp!r} > {max_age:.0f}s old): {raw_m[:60]!r}")
+                  f"({timestamp!r} reads {age}s old, window {max_age:.0f}s): "
+                  f"{raw_m[:60]!r}")
             try:
                 _core.log_event("cmd_miss", reason="stale_trigger",
                                 sender=str(clean_user)[:40], source=source,
-                                timestamp=str(timestamp)[:40], text=str(raw_m)[:140])
+                                timestamp=str(timestamp)[:40],
+                                age_s=round(age, 1) if age is not None else None,
+                                max_age_s=max_age, text=str(raw_m)[:140])
             except Exception:
                 pass
             return False
@@ -3745,10 +3833,15 @@ def process_chat_message(username: str, timestamp: str, message: str):
     )
 
     if is_off_cmd:
+        # !transcribed stops ONLY the chat echo. Whisper keeps running and every
+        # clip is still transcribed and stored, so the room stops being spammed
+        # without the bot going deaf. It used to clear transcribe_enabled, which
+        # stopped data collection too.
         with state.lock:
-            already_off = not state.transcribe_enabled
-            state.transcribe_enabled = False
+            already_off = not state.transcript_echo_enabled
+            state.transcript_echo_enabled = False
             state.repeat_mode = False
+            stt_still_on = state.transcribe_enabled
             while not audio_chunk_queue.empty():
                 try:
                     audio_chunk_queue.get_nowait()
@@ -3757,10 +3850,21 @@ def process_chat_message(username: str, timestamp: str, message: str):
         save_bot_runtime_state()
         if already_off:
             # Idempotent: duplicate OFF command must not re-ack.
-            print(f"[COMMAND] Transcription already OFF (duplicate from {clean_user} suppressed).")
+            print(f"[COMMAND] Chat transcript echo already OFF (duplicate from {clean_user} suppressed).")
             return
-        print(f"[COMMAND] Live microphone transcription turned OFF by {clean_user}")
-        send_chat_message(f"{format_bot_timestamp()} Live microphone transcription is OFF.", override_mute=True)
+        if stt_still_on:
+            print(f"[COMMAND] Chat transcript echo turned OFF by {clean_user} "
+                  f"(STT still ON, data still being recorded)")
+            send_chat_message(
+                f"{format_bot_timestamp()} Chat transcript echo is OFF. "
+                "KaeKae is still listening, transcribing and saving everything.",
+                override_mute=True)
+        else:
+            print(f"[COMMAND] Chat transcript echo turned OFF by {clean_user} "
+                  f"(STT was already OFF)")
+            send_chat_message(
+                f"{format_bot_timestamp()} Chat transcript echo is OFF "
+                "(transcription is also currently off).", override_mute=True)
         return
 
     on_triggers = {
@@ -3787,6 +3891,9 @@ def process_chat_message(username: str, timestamp: str, message: str):
             already_on = state.transcribe_enabled and state.listening_enabled
             state.transcribe_enabled = True
             state.listening_enabled = True
+            # !transcribe turns the chat echo back on too, so it is a true
+            # restore of the full pipeline after !transcribed muted it.
+            state.transcript_echo_enabled = True
             while not audio_chunk_queue.empty():
                 try:
                     audio_chunk_queue.get_nowait()
