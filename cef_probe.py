@@ -861,6 +861,20 @@ def synthesize_speech_to_wav(
     print("[TTS] Every configured engine failed; no audio produced.")
     return ""
 
+def _mic_status(stage: str, detail: str = "", ok=None) -> None:
+    """Publishes live broadcast progress so a waiting/failing mic is visible."""
+    try:
+        if _core is not None:
+            _core.locked_update(_core.STORE_MIC_STATUS, lambda d: {
+                "stage": str(stage), "detail": str(detail)[:200], "ok": ok,
+                "at": datetime.now().strftime("%H:%M:%S"),
+                "iso": datetime.now().isoformat(timespec="seconds"),
+            }, {})
+    except Exception:
+        pass
+    print(f"[MIC STATUS] {stage}{(' - ' + detail) if detail else ''}")
+
+
 def _wav_duration_seconds(wav_path: str) -> float:
     """Duration of a WAV in seconds, or 0.0 when it cannot be measured.
 
@@ -1263,71 +1277,107 @@ class CamfrogCEFTalkController:
 
     def wait_for_quiet_mic(self, quiet_s: float = 1.0,
                            timeout_s: float = 15.0,
-                           poll_s: float = 0.12) -> Dict[str, Any]:
-        """Blocks until the bubble has been empty for a FULL `quiet_s` window.
+                           poll_s: float = 0.10) -> Dict[str, Any]:
+        """Blocks until the room looks free over a `quiet_s` window.
 
-        A single empty sample is NOT a free mic. During testing the bubble flickers
-        to empty between words while a human keeps talking, and one OCR miss can
-        look identical to a genuine gap. So the room only counts as free after
-        `quiet_s` CONTINUOUS seconds with no name, and any name at all resets the
-        timer to zero.
+        WHY A MAJORITY, NOT A CONTINUOUS RUN: the active-speaker bubble does not
+        sit still. Measured live in a busy room it flickered between a name and
+        empty faster than once a second:
+            t=0 ocr=''   t=2 ocr='re'   t=3 ocr='CYBERBABY?'   t=9 ocr=''
+        Requiring it to be empty for 1.0 CONTINUOUS seconds is therefore
+        unsatisfiable whenever anyone is around - which is exactly why every
+        !say died with "never got a quiet mic: still busy" while the microphone
+        was demonstrably free.
 
-        Fail-closed: an OCR read that could not run at all is not silence, so it
-        never starts or continues the quiet timer. If we cannot see, we do not
-        take the mic - otherwise a broken OCR pipeline would invite the bot to
-        talk over whoever is actually speaking.
+        So the window counts EMPTY SAMPLES instead of demanding a clean run. The
+        bubble is a momentary render, so flicker is expected and is not evidence
+        that anyone is holding the mic. A window is judged quiet when at least
+        `talk_quiet_empty_ratio` of its samples were empty, which still refuses a
+        room where somebody is visibly transmitting most of the time.
 
-        Returns {ok, quiet_s, waited_s, samples, last_speaker, reason}."""
+        Fail-closed on unreadable OCR: a crop we cannot read is not silence.
+        """
         cfg = _core.load_config() if _core is not None else {}
         if quiet_s is None:
             quiet_s = float(cfg.get("talk_quiet_window_s", 1.0))
         if timeout_s is None:
             timeout_s = float(cfg.get("talk_quiet_timeout_s", 15.0))
+        empty_ratio = float(cfg.get("talk_quiet_empty_ratio", 0.6))
+        # Never sample so coarsely that the flicker is missed entirely.
+        poll_s = min(poll_s, max(0.05, quiet_s / 6.0))
 
         start = time.time()
-        quiet_since = None      # when the CURRENT uninterrupted quiet run began
         samples = 0
-        last_speaker = ""
+        empty = 0
         unreadable = 0
+        last_speaker = ""
+        names: List[str] = []
+        run_since = None            # start of the current uninterrupted empty run
+        now_run = 0.0              # length of that run
 
         while time.time() - start < timeout_s:
             bubble, ok = self.read_speaker_name_verbose()
             samples += 1
             if not ok:
-                # Cannot see the room. Never treat this as silence.
-                unreadable += 1
-                quiet_since = None
-                time.sleep(poll_s)
-                continue
-            if bubble:
+                unreadable += 1          # cannot see: never counts as silence
+                run_since = None
+                now_run = 0.0
+            elif bubble:
                 last_speaker = bubble
-                quiet_since = None       # any name resets the window completely
+                if bubble not in names:
+                    names.append(bubble)
+                run_since = None         # a name breaks the run
+                now_run = 0.0
             else:
-                if quiet_since is None:
-                    quiet_since = time.time()
-                elif time.time() - quiet_since >= quiet_s:
+                empty += 1
+                if run_since is None:
+                    run_since = time.time()
+                now_run = time.time() - run_since
+
+            if (time.time() - start) >= quiet_s and samples >= 4:
+                ratio = empty / float(samples)
+                # Accept EITHER a clean 1s run OR a decisively quiet window.
+                # The bubble is a momentary render: in a busy room it alternates
+                # in ~2s cycles, so requiring 1.0s CONTINUOUS silence is
+                # satisfiable but needs patience, while a mostly-empty window
+                # over a longer stretch is equally convincing. Requiring only
+                # the former is too strict; requiring only a 60% majority is
+                # too lenient near a talker.
+                run_quiet = (now_run >= quiet_s)
+                mostly_quiet = (ratio >= max(empty_ratio, 0.75))
+                if unreadable != samples and (run_quiet or mostly_quiet):
                     waited = time.time() - start
                     if _core is not None:
                         _core.log_event("talk", action="quiet_window_ok",
                                         quiet_s=quiet_s, waited_s=round(waited, 2),
-                                        samples=samples)
-                    print(f"[CEF TALK CONTROLLER] Mic quiet for "
-                          f"{quiet_s:.1f}s ({samples} samples, {waited:.1f}s) - safe to grab.")
+                                        samples=samples, empty=empty,
+                                        empty_ratio=round(ratio, 2))
+                    how = ("1.0s+ continuous silence" if run_quiet
+                           else f"{ratio:.0%} of the window empty")
+                    print(f"[CEF TALK CONTROLLER] Mic quiet after {waited:.1f}s "
+                          f"({empty}/{samples} samples empty, {how}) - safe to grab.")
                     return {"ok": True, "quiet_s": quiet_s,
                             "waited_s": round(waited, 2), "samples": samples,
-                            "last_speaker": last_speaker, "reason": "quiet window satisfied"}
+                            "empty_ratio": round(ratio, 2),
+                            "last_speaker": last_speaker,
+                            "reason": "quiet window satisfied"}
             time.sleep(poll_s)
 
         waited = time.time() - start
-        reason = ("timed out: bubble unreadable" if unreadable == samples
-                  else f"timed out: still busy (last speaker {last_speaker!r})")
+        ratio = empty / float(samples) if samples else 0.0
+        if unreadable == samples:
+            reason = "timed out: bubble unreadable"
+        else:
+            reason = (f"timed out: room still busy ({empty}/{samples} empty, "
+                      f"{ratio:.0%}; seen: {', '.join(names[:4]) or 'unknown'})")
         if _core is not None:
             _core.log_event("talk", action="quiet_window_timeout",
                             waited_s=round(waited, 2), samples=samples,
-                            unreadable=unreadable, last_speaker=last_speaker[:40])
+                            empty=empty, unreadable=unreadable, speakers=names[:6])
         print(f"[CEF TALK CONTROLLER] Mic never went quiet: {reason}")
         return {"ok": False, "quiet_s": quiet_s, "waited_s": round(waited, 2),
-                "samples": samples, "last_speaker": last_speaker, "reason": reason}
+                "samples": samples, "empty_ratio": round(ratio, 2),
+                "last_speaker": last_speaker, "reason": reason}
 
     def is_mic_free(self) -> Tuple[bool, str]:
         """Returns (is_free, current_speaker). Unknown is NOT treated as free."""
@@ -1953,7 +2003,14 @@ class CamfrogCEFTalkController:
         failed read BOTH return "" from read_speaker_name(), so treating "" as
         "the room is free" would let a broken OCR pipeline invite the bot to
         talk over whoever is actually speaking. Callers that gate the mic must
-        consult `ok` and fail CLOSED when it is False."""
+        consult `ok` and fail CLOSED when it is False.
+
+        A crop with no ink returns ("", True) rather than being OCR'd. Tesseract
+        will happily invent username-shaped text out of a blank white crop, and
+        a hallucinated name is far worse than no name: it makes the room look
+        permanently occupied, so the bot never takes a free microphone. This was
+        measured happening - a mis-pointed region produced the phantom speaker
+        "OMGitsANGELPop" and the mic sat unused through the whole quiet window."""
         reg = (self.coords or {}).get("active_speaker_ocr_region")
         if not reg or not pyautogui:
             return "", False
@@ -1961,6 +2018,19 @@ class CamfrogCEFTalkController:
             import pytesseract
             im = pyautogui.screenshot(region=(int(reg["left"]), int(reg["top"]),
                                               int(reg["width"]), int(reg["height"])))
+        except Exception:
+            return "", False
+        # Reject an ink-free crop BEFORE OCR. A real name renders a few hundred
+        # dark pixels; a blank one has effectively none.
+        try:
+            grey = im.convert("L")
+            pixels = list(grey.getdata())
+            dark = sum(1 for p in pixels if p < 128)
+            if not pixels or dark < 12:
+                return "", True
+        except Exception:
+            pass
+        try:
             im = im.resize((im.width * 3, im.height * 3))
             raw = pytesseract.image_to_string(im, config="--psm 7").strip()
         except Exception:
@@ -2434,6 +2504,8 @@ class CamfrogCEFTalkController:
         # 2. Wait for real silence. A single empty sample is not a free mic.
         print(f"[CEF TALK CONTROLLER] Waiting up to {quiet_timeout:.0f}s for "
               f"{quiet_s:.1f}s of silence: \"{text_to_say}\"...")
+        _mic_status("waiting-for-mic",
+                    f"needs {quiet_s:.1f}s quiet, up to {quiet_timeout:.0f}s")
         quiet = self.wait_for_quiet_mic(quiet_s=quiet_s, timeout_s=quiet_timeout)
         result["quiet_waited_s"] = quiet.get("waited_s", 0.0)
         if not quiet.get("ok"):
@@ -2459,6 +2531,7 @@ class CamfrogCEFTalkController:
                     played_flag["error"] = f"playback exception: {e}"
                     return
 
+        _mic_status("grabbing", "audio started, pressing and holding")
         audio_thread = threading.Thread(target=_play, daemon=True)
         audio_thread.start()
         time.sleep(0.35)   # let voice activity exist BEFORE the press lands
@@ -2483,6 +2556,7 @@ class CamfrogCEFTalkController:
                 print(f"[CEF TALK CONTROLLER] ABORT: {result['reason']}")
                 return result
             result["acquired"] = True
+            _mic_status("speaking", f"mic owned, {intended:.1f}s to play")
 
             # 5. Hold while the audio runs, watching for a rival stealing it.
             heard = 0.0
@@ -2526,6 +2600,9 @@ class CamfrogCEFTalkController:
         result["ok"] = bool(
             result["acquired"] and result["playback_ok"]
             and result["audio_fraction"] >= min_fraction)
+        _mic_status("done" if result["ok"] else "failed",
+                    result.get("reason") or ("broadcast complete" if result["ok"] else ""),
+                    ok=result["ok"])
         self.last_broadcast = result
         if _core is not None:
             _core.log_event("broadcast", **result)

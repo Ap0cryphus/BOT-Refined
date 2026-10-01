@@ -695,10 +695,12 @@ def run_tests():
     # --- T30: acknowledgements are terminal-only ------------------------
     check("ack: a timestamped status banner is an ack",
           kb.is_command_ack("(10/01I09:24:08) Live transcription is OFF."))
-    check("ack: [Mic Broadcast] echo is an ack",
-          kb.is_command_ack("[Mic Broadcast]: hello"))
     check("ack: [Presence] report is an ack",
           kb.is_command_ack("[Presence] Room: x"))
+    # [Mic Broadcast] is deliberately NOT an ack: it is the room's only visible
+    # sign a queued line is being spoken, and suppressing it made !say vanish.
+    check("ack: [Mic Broadcast] echo still reaches the room",
+          not kb.is_command_ack("[Mic Broadcast]: hello"))
     check("ack: ordinary conversation is NOT an ack",
           not kb.is_command_ack("oh my god that was hilarious"))
     check("ack: a real bot reply is NOT an ack",

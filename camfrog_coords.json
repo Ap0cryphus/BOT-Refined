@@ -1,9 +1,9 @@
 {
   "active_speaker_ocr_region": {
-    "left": 1504,
-    "top": 557,
-    "width": 180,
-    "height": 28
+    "left": 1470,
+    "top": 550,
+    "width": 240,
+    "height": 34
   },
   "chat_input": {
     "x": 1446,
@@ -18,5 +18,6 @@
     "top": 548,
     "width": 96,
     "height": 34
-  }
+  },
+  "active_speaker_region_note": "Re-aligned 10/01 against the live room window (L=1273,T=0). The old 1504/557/180x28 crop caught only 91 dark px and OCR'd nothing; 1470/550/240x34 catches 283 dark px and reads the name reliably."
 }

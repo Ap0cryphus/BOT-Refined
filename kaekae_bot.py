@@ -2180,6 +2180,40 @@ def read_ocr_speaker_name() -> str:
     return ""
 
 
+def set_mic_status(stage: str, detail: str = "", ok: Optional[bool] = None) -> None:
+    """Publishes what the broadcast is doing RIGHT NOW so it can be watched.
+
+    A queued line used to be completely invisible between the chat echo and the
+    final result, so a !say that was waiting - or silently failing - looked
+    identical to one that had never run. This writes a small status file that
+    Terminal 2 prints live and Terminal 3 renders on the dashboard, so "is it
+    running, and what is it waiting for?" is answerable at a glance.
+    """
+    try:
+        if _core is not None:
+            _core.locked_update(_core.STORE_MIC_STATUS, lambda d: {
+                "stage": str(stage or "idle"),
+                "detail": str(detail or "")[:200],
+                "ok": ok,
+                "at": datetime.now().strftime("%H:%M:%S"),
+                "iso": datetime.now().isoformat(timespec="seconds"),
+            }, {})
+    except Exception:
+        pass
+    print(f"[MIC STATUS] {stage}{(' - ' + detail) if detail else ''}")
+
+
+def read_mic_status() -> Dict[str, Any]:
+    """Current mic/broadcast status, for the dashboard and for !talkstatus."""
+    if _core is None:
+        return {"stage": "unknown", "detail": "", "at": ""}
+    try:
+        return _core.read_json(_core.STORE_MIC_STATUS, {}) or {
+            "stage": "idle", "detail": "", "at": ""}
+    except Exception:
+        return {"stage": "unknown", "detail": "", "at": ""}
+
+
 def find_active_speaker(win) -> str:
     """
     Finds the active microphone speaker's username.
@@ -2547,7 +2581,10 @@ def is_command_ack(text: str) -> bool:
         return False
     if re.match(r'^\(\d{2}/\d{2}I\d{2}:\d{2}:\d{2}\)', raw):
         return True
-    if raw.startswith(("[CEF Talk]", "[Presence]", "[Room Users", "[Mic Broadcast]")):
+    # NOTE: [Mic Broadcast] is deliberately NOT an acknowledgement. That echo is
+    # the room's only visible sign that a queued line is being spoken, and it was
+    # suppressing it - so a !say vanished with no trace in chat at all.
+    if raw.startswith(("[CEF Talk]", "[Presence]", "[Room Users")):
         return True
     return False
 

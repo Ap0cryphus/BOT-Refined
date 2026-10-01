@@ -43,6 +43,9 @@ STORE_PAGINATION = "pagination.json"
 # self-pruning - see presence.py. Records that cannot be dated are discarded
 # rather than kept, so recall never answers from an unknowable age.
 STORE_PRESENCE = "presence.json"
+# What the broadcast is doing right now (queued / waiting-for-mic /
+# grabbing / speaking / done), so a stalled !say is visible instead of silent.
+STORE_MIC_STATUS = "mic_status.json"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "cef_chat_scan_interval_seconds": 0.25,

@@ -18,6 +18,7 @@ import os
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 os.environ.setdefault("KAEKAE_TERMINAL", "t3")
 
@@ -122,6 +123,43 @@ def print_hud():
         print(f"    - {k.get('time', '')} | {k.get('actor', '')} {k.get('action', '')} {k.get('target', '')}")
     if not kicks_data:
         print("    (none recorded)")
+    print("-" * 78)
+
+    # Broadcast / mic pipeline state. Without this the HUD could not tell a
+    # queued line that was WAITING for a free microphone from one that had
+    # failed, or from one that had never run at all.
+    mic = _read("mic_status.json", {}) or {}
+    talk = _read("talk_state.json", {}) or {}
+    stage = mic.get("stage", "idle")
+    mark = {True: "OK", False: "FAILED", None: ""}.get(mic.get("ok"), "")
+    print(f"  [MIC PIPELINE] stage={stage} {mark} at {mic.get('at', '?')}")
+    if mic.get("detail"):
+        print(f"    -> {mic.get('detail')}")
+    holding = bool(talk.get("holding"))
+    print(f"    mic held: {'YES' if holding else 'no'}   "
+          f"method: {talk.get('method', 'none')}")
+    q = _read("broadcast_queue.json", [])
+    qn = len(q) if isinstance(q, list) else 0
+    print(f"    queue depth: {qn}" + ("  (waiting to be spoken)" if qn else ""))
+    for item in (q[-3:] if isinstance(q, list) else []):
+        txt = (item or {}).get("text", "")
+        ready = "audio-ready" if (item or {}).get("audio_ready") else "needs render"
+        print(f"      - [{ready}] {txt[:52]!r}")
+    # Recent broadcast outcomes, straight from the durable log.
+    try:
+        from datetime import date
+        log = Path("logs") / f"broadcast_{date.today():%Y%m%d}.jsonl"
+        if log.exists():
+            rows = [l for l in log.read_text(encoding="utf-8").splitlines() if l.strip()][-3:]
+            print("    recent results:")
+            for line in rows:
+                r = json.loads(line)
+                res = "ok" if r.get("ok") else "FAILED"
+                frac = r.get("audio_fraction")
+                extra = f" {frac:.0%} audio" if isinstance(frac, (int, float)) else ""
+                print(f"      - {res}{extra} | {(r.get('reason') or '')[:52]}")
+    except Exception:
+        pass
     print("=" * 78)
     print("  [1] Speak on mic   [2] Voice/Engine   [3] Send command   [4] Grab/Release mic   [5] Stop transcription   [0] Exit")
     print("=" * 78)
