@@ -294,6 +294,12 @@ KICK_FILE = _project_path("bot_kicks.json")
 MEMORY_FILE = _project_path("bot_memory.json")
 CONFIG_FILE = _project_path("config.json")
 STATE_FILE = _project_path("bot_state.json")
+PRESENCE_FILE = _project_path("presence.json")
+
+try:
+    import presence as _presence
+except Exception:
+    _presence = None
 
 # Startup Disclaimer
 STARTUP_DISCLAIMER = "KaeKae is Alpha Testing, Debugging, and Updating Currently."
@@ -788,6 +794,49 @@ def make_message_signature(username: str, timestamp: str, message: str) -> str:
     m_norm = re.sub(r'\s+', ' ', m_clean)
     return f"{u}|{t}|{m_norm}"
 
+def _presence_store_locked() -> Dict[str, Any]:
+    """Loads presence.json, purging anything undated or not tied to a user.
+
+    The purge runs on EVERY load, not once at migration: a row written by an old
+    build (or truncated by a crash mid-write) has no date, and recall must never
+    answer from a record whose age cannot be established."""
+    store: Dict[str, Any] = {}
+    try:
+        with state.lock:
+            with open(PRESENCE_FILE, "r", encoding="utf-8") as f:
+                store = json.load(f)
+            if not isinstance(store, dict):
+                store = {}
+    except Exception:
+        store = {}
+    if _presence is not None and isinstance(store, dict):
+        try:
+            removed = _presence.purge_undated(store)
+            if removed:
+                print(f"[PRESENCE] Purged {removed} undated/unattributed record(s).")
+        except Exception as e:
+            print(f"[PRESENCE] Purge notice: {e}")
+    return store
+
+
+def _save_presence(store: Dict[str, Any]) -> bool:
+    if _presence is not None:
+        try:
+            _presence.prune_stale(store)
+        except Exception:
+            pass
+    with state.lock:
+        try:
+            tmp = PRESENCE_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(store, f, indent=2)
+            os.replace(tmp, PRESENCE_FILE)
+            return True
+        except Exception as e:
+            print(f"[PRESENCE] Error saving presence: {e}")
+            return False
+
+
 def save_users():
     with state.file_lock:
         try:
@@ -843,11 +892,22 @@ def record_chat_message(username: str, message: str, timestamp: str, source: str
         state.archived_message_keys.add(key)
 
         user_key = next((k for k in state.users if k.lower() == clean_user.lower()), clean_user)
+        # Date-stamp from the PC clock. The chat timestamp itself is only a bare
+        # clock ("07:38 AM") with NO date, so it cannot be aged or compared - and
+        # a profile whose age cannot be established is useless for recall. The
+        # dated fields are what recall reads; the display clock is kept too
+        # because it matches what a human sees in the room.
+        seen_date = datetime.now().strftime("%Y-%m-%d")
+        seen_iso = datetime.now().isoformat(timespec="seconds")
         if user_key not in state.users:
             state.users[user_key] = {
                 "nickname": clean_user,
                 "first_seen": timestamp,
                 "last_seen": timestamp,
+                "first_seen_date": seen_date,
+                "last_seen_date": seen_date,
+                "first_seen_iso": seen_iso,
+                "last_seen_iso": seen_iso,
                 "message_count": 0,
                 "topics": [],
                 "quotes": [],
@@ -858,6 +918,14 @@ def record_chat_message(username: str, message: str, timestamp: str, source: str
             }
         profile = state.users[user_key]
         profile["last_seen"] = timestamp
+        profile["last_seen_date"] = seen_date
+        profile["last_seen_iso"] = seen_iso
+        # A profile from an older build has no dated field at all; backfill from
+        # its existing clock so it is no longer unageable rather than discarding a
+        # profile that has real quotes and stats in it.
+        if not profile.get("first_seen_iso"):
+            profile["first_seen_iso"] = seen_iso
+            profile["first_seen_date"] = profile.get("first_seen_date") or seen_date
         profile["message_count"] = profile.get("message_count", 0) + 1
 
         topic_words = ["game", "stream", "music", "movie", "food", "car", "job", "work",
@@ -2092,6 +2160,75 @@ def scan_room_users(win) -> Set[str]:
             state.current_room_users = {u for u in state.current_room_users if u.lower() != exp}
         return set(state.current_room_users)
 
+def refresh_presence_from_panel(win) -> Optional[Dict[str, Any]]:
+    """Re-reads the right-hand roster panel and folds it into presence.json.
+
+    The panel is a TRUE SNAPSHOT of who is in the room right now, unlike the chat
+    feed which is a historical scrollback. That matters because Camfrog
+    SUPPRESSES the Join/Quit notices while the cursor hovers over this panel, so
+    the event stream goes blind exactly when the user is looking at the roster.
+    Re-reading the panel is the only reliable refresh in that state, so this is
+    called on a timer rather than only on events.
+
+    A failed read is NEVER applied: an unreadable panel would otherwise mark
+    every user as having left the room."""
+    if win is None or _presence is None:
+        return None
+    try:
+        with state.lock:
+            known = set(state.users.keys()) | set(state.current_room_users)
+        coords = None
+        try:
+            for fname in ("camfrog_coords.json", CONFIG_FILE):
+                path = _project_path(fname)
+                if not os.path.exists(path):
+                    continue
+                with open(path, "r", encoding="utf-8") as f:
+                    coords = json.load(f)
+                if isinstance(coords, dict) and "roster_ocr_region" in coords:
+                    break
+        except Exception:
+            coords = None
+        read = _presence.read_roster(win, coords, known_users=sorted(known))
+        if not read.get("reading_ok"):
+            return None
+        with state.lock:
+            store = _presence_store_locked()
+            res = _presence.apply_roster(
+                store, state.current_focused_room, read.get("users") or [],
+                read.get("counts"))
+            _save_presence(store)
+        return res
+    except Exception as e:
+        print(f"[PRESENCE] Panel refresh failed: {e}")
+        return None
+
+
+def record_presence_event(text: str, seq: int = 0) -> Optional[Dict[str, Any]]:
+    """Records a Join/Quit notice from the chat feed, stamped with the PC clock.
+
+    These notices carry NO timestamp of their own, so the recorded time is when
+    we OBSERVED the line (marked exact_time=False) and `seq` preserves the feed
+    ordering. Nothing here invents a time of day it did not read."""
+    if _presence is None or not text:
+        return None
+    ev = _presence.parse_join_quit(text)
+    if not ev:
+        return None
+    try:
+        with state.lock:
+            store = _presence_store_locked()
+            rec = _presence.record_event(
+                store, state.current_focused_room, ev["action"], ev["user"], seq)
+            _save_presence(store)
+        print(f"[PRESENCE] {ev['action'].upper()} {ev['user']} "
+              f"(observed {rec['observed_at_display']}, no source timestamp)")
+        return rec
+    except Exception as e:
+        print(f"[PRESENCE] Event record failed: {e}")
+        return None
+
+
 def room_users_scanner_worker():
     """
     Continuously monitors the Camfrog user list in the background every 4-5 seconds.
@@ -2103,6 +2240,7 @@ def room_users_scanner_worker():
             win = get_camfrog_window()
             if win:
                 scan_room_users(win)
+                refresh_presence_from_panel(win)
         except Exception:
             pass
         time.sleep(4.0)
@@ -3449,6 +3587,14 @@ def process_chat_message(username: str, timestamp: str, message: str):
         state.current_room_users.add(clean_user)
         state.room_users_activity[clean_user.lower()] = time.time()
 
+    # Join/Quit notices carry no timestamp, so they are recorded from the PC
+    # clock at observation time with exact_time=False, and the feed position is
+    # kept as an ordering hint. See presence.record_event().
+    try:
+        record_presence_event(raw_msg, seq=int(time.time() * 1000))
+    except Exception:
+        pass
+
     # Auto-detect moderation action embedded in any chat or system message
     if any(w in raw_msg.lower() for w in ["kick", "block", "punish", "ban"]):
         mod_ev = detect_kick_block(clean_user, raw_msg) or detect_kick_block(clean_user, text_content)
@@ -3678,6 +3824,38 @@ Keep under 250 characters!
         win = get_camfrog_window()
         members = scan_room_users(win)
         paginate_room_users(members, clean_user)
+        return
+
+    # Presence: the live roster panel plus recent arrivals/departures.
+    if msg_lower in {"!presence", "!here", "!roster"}:
+        win = get_camfrog_window()
+        refresh_presence_from_panel(win)
+        store = _presence_store_locked()
+        room = state.current_focused_room
+        entry = (store.get("rooms") or {}).get(room) or {}
+        present = sorted((u.get("name") or k)
+                         for k, u in (entry.get("users") or {}).items())
+        counts = entry.get("counts") or {}
+        snap = entry.get("last_snapshot") or "never"
+        lines = [f"[Presence] Room: {room}",
+                 f"[Presence] Last panel snapshot: {snap}"]
+        if counts:
+            lines.append("[Presence] Viewing=%s Members=%s Lurkers=%s" % (
+                counts.get("viewing", "?"), counts.get("members", "?"),
+                counts.get("lurkers", "?")))
+        lines.append("[Presence] Present (%d): %s" % (
+            len(present), ", ".join(present) if present else "none read"))
+        evs = (store.get("events") or [])[-8:]
+        if evs:
+            lines.append("[Presence] Recent arrivals/departures "
+                         "(times are when SEEN; notices carry no clock):")
+            for e in evs:
+                lines.append("   %s %-18s %s exact_time=%s" % (
+                    e.get("observed_at_display", "?"), e.get("user", "?"),
+                    e.get("action", "?"), e.get("exact_time")))
+        else:
+            lines.append("[Presence] No arrivals/departures recorded yet.")
+        queue_or_send_paginated("Presence", lines, clean_user)
         return
 
     # 9. Mic Grab Increments (5m to 72h): !grabs or !micstats

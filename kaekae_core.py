@@ -39,6 +39,10 @@ STORE_COMMAND_INBOX = "command_inbox.jsonl"
 STORE_BROADCAST_QUEUE = "broadcast_queue.json"
 STORE_CHAT_OUTBOX = "chat_outbox.jsonl"
 STORE_PAGINATION = "pagination.json"
+# Room presence: who is in the room, when they arrived/left. Date-stamped and
+# self-pruning - see presence.py. Records that cannot be dated are discarded
+# rather than kept, so recall never answers from an unknowable age.
+STORE_PRESENCE = "presence.json"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "cef_chat_scan_interval_seconds": 0.25,

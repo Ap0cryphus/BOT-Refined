@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import multiprocessing as mp
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -447,6 +448,128 @@ def run_tests():
     check("trigger window is short enough to drop stale on-screen lines",
           float(cfg.get("trigger_max_age_s")) <= 300,
           str(cfg.get("trigger_max_age_s")))
+
+    # --- T20: presence - join/quit notices -------------------------------
+    import presence as pres
+    for raw, act, who in (
+            ("Join: tajnysmiral", "join", "tajnysmiral"),
+            ("Quit: tajnysmiral", "quit", "tajnysmiral"),
+            ("[10/01I07:30:31] Join: $htickie", "join", "$htickie"),
+            ("tajnysmiral has left the room", "quit", "tajnysmiral"),
+            ("b3_d33 joined", "join", "b3_d33"),
+    ):
+        got = pres.parse_join_quit(raw)
+        check(f"presence: parses {raw[:34]!r}",
+              bool(got) and got["action"] == act and got["user"] == who, str(got))
+    for raw in ("hello there", "Join: mic", "$htickie blocked $htickie microphone", ""):
+        check(f"presence: ignores non-notice {raw[:30]!r}",
+              pres.parse_join_quit(raw) is None, str(pres.parse_join_quit(raw)))
+    check("presence: join notices are marked as having no clock",
+          pres.parse_join_quit("Join: tajnysmiral")["timestamped"] == "no")
+
+    # --- T21: roster panel parsing ---------------------------------------
+    check("roster: reads LURKERS count",
+          pres.parse_roster_header("LURKERS 2") == ("lurkers", 2))
+    check("roster: reads MEMBERS count with a colon",
+          pres.parse_roster_header("MEMBERS: 0") == ("members", 0))
+    check("roster: reads YOU ARE VIEWING",
+          pres.parse_roster_header("YOU ARE VIEWING 3") == ("viewing", 3))
+    check("roster: an illegible count is UNKNOWN, not zero",
+          pres.parse_roster_header("LURKERS") == ("lurkers", -1))
+    blk = pres.parse_roster_block(["YOU ARE VIEWING 0", "MEMBERS 0",
+                                   "LURKERS 2", "tajnysmiral", "Shtickie"])
+    check("roster: extracts all three buckets",
+          blk["counts"] == {"viewing": 0, "members": 0, "lurkers": 2}, str(blk["counts"]))
+    check("roster: extracts names without header text",
+          blk["users"] == ["tajnysmiral", "Shtickie"], str(blk["users"]))
+    check("roster: empty panel is not 'confidently empty'",
+          pres.parse_roster_block([])["reading_ok"] is False)
+
+    # --- T22: cursor hover suppresses the event feed ----------------------
+    check("cursor: inside the panel counts as hovering",
+          pres.cursor_position_over_roster((1500, 400), (1400, 300, 200, 500)) is True)
+    check("cursor: over the chat feed does not",
+          pres.cursor_position_over_roster((700, 400), (1400, 300, 200, 500)) is False)
+    check("cursor: unknown cursor is never 'hovering'",
+          pres.cursor_position_over_roster(None, (1400, 300, 200, 500)) is False)
+    check("cursor: unknown panel is never 'hovering'",
+          pres.cursor_position_over_roster((1500, 400), None) is False)
+
+    # --- T23: presence store is date-stamped and self-pruning ------------
+    st = {}
+    res = pres.apply_roster(st, "RoomA", ["tajnysmiral", "Shtickie"],
+                            {"lurkers": 2, "members": 0, "viewing": 0})
+    check("store: first snapshot reports both as joined",
+          sorted(res["joined"]) == ["Shtickie", "tajnysmiral"], str(res["joined"]))
+    res = pres.apply_roster(st, "RoomA", ["Shtickie"], {"lurkers": 1})
+    check("store: a missing user is marked gone via the panel",
+          res["left"] == ["tajnysmiral"] and res["joined"] == [], str(res))
+    dep = st["rooms"]["RoomA"]["departed"][0]
+    check("store: departure records the date it was observed",
+          bool(dep.get("left_at")) and dep.get("left_reason") == "panel", str(dep))
+    check("store: present set reflects the latest snapshot",
+          pres.present_users(st, "RoomA") == ["Shtickie"])
+
+    st2 = {}
+    pres.record_event(st2, "RoomA", "join", "tajnysmiral", 1)
+    ev = st2["events"][0]
+    check("store: events carry an observed_at date",
+          bool(ev.get("observed_at")), str(ev))
+    check("store: events are marked NOT exact time",
+          ev["exact_time"] is False and ev["timestamped"] == "no", str(ev))
+    check("store: events preserve feed ordering via seq",
+          ev["seq"] == 1, str(ev))
+    # Undated / user-less rows must not survive, so recall never answers from
+    # a record whose age or subject cannot be established.
+    st2["events"].append({"action": "join", "user": "", "observed_at": None})
+    st2["events"].append({"action": "join", "user": "ghost", "observed_at": "nonsense"})
+    before = len(st2["events"])
+    removed = pres.purge_undated(st2)
+    check("store: undated and user-less rows are removed",
+          len(st2["events"]) == before - removed == 1,
+          f"{len(st2['events'])} left, {removed} removed")
+
+    # A record from yesterday is stale under the one-day rule.
+    st3 = {"rooms": {"R": {"users": {"old": {"name": "old",
+              "last_seen": (datetime.now() - timedelta(days=3)).isoformat()}}}}}
+    check("store: a three-day-old presence record is pruned",
+          pres.prune_stale(st3) == 1 and "old" not in st3["rooms"]["R"]["users"],
+          str(st3))
+
+    # --- T24: OCR-damaged headers and known-user matching ---------------
+    # Live OCR of the panel yields these exact strings: spaces are lost and a
+    # stray glyph is prefixed. Header matching must survive that.
+    check("roster: OCR-damaged YOU ARE VIEWING still parses",
+          pres.parse_roster_header("svYOUAREVIEWING0 v") == ("viewing", 0),
+          str(pres.parse_roster_header("svYOUAREVIEWING0 v")))
+    check("roster: OCR-damaged MEMBERS still parses",
+          pres.parse_roster_header("A MEMBERS0 v") == ("members", 0))
+    check("roster: OCR-damaged LURKERS still parses",
+          pres.parse_roster_header("A_LURKERS2 v") == ("lurkers", 2))
+    check("roster: a header with no digits stays UNKNOWN",
+          pres.parse_roster_header("LURKERS") == ("lurkers", -1))
+
+    live = ["GIFTUsers2", "svYOUAREVIEWING0 v", "A MEMBERS0 v",
+            "A_LURKERS2 v", "b1HShtickie Pm", "4KaeKae_Toad fi"]
+    blk2 = pres.parse_roster_block(live)
+    check("roster: live OCR counts are correct",
+          blk2["counts"] == {"viewing": 0, "members": 0, "lurkers": 2},
+          str(blk2["counts"]))
+    check("roster: garbled OCR never becomes a username",
+          blk2["users"] == [], str(blk2["users"]))
+    check("roster: known user is confirmed through the OCR noise",
+          pres.match_known_users(live, ["Shtickie", "KaeKae_Toad"]) ==
+          ["Shtickie", "KaeKae_Toad"],
+          str(pres.match_known_users(live, ["Shtickie", "KaeKae_Toad"])))
+    check("roster: an absent known user is not reported",
+          pres.match_known_users(live, ["NobodyHere"]) == [])
+    check("roster: clean username accepted", pres.looks_like_username("Shtickie"))
+    check("roster: garbled line rejected",
+          not pres.looks_like_username("b1HShtickie Pm"))
+    check("roster: header text is excluded from names by the header check",
+          "A_LURKERS2" not in blk2["users"], str(blk2["users"]))
+    check("roster: GIFTs toolbar label is not a user",
+          not pres.looks_like_username("GIFTUsers2"))
 
     print("\n" + "=" * 60)
     if FAILS:
