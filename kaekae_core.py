@@ -318,7 +318,7 @@ def normalize_text(text: str) -> str:
     return " ".join(norm.split())
 
 
-GATED_KINDS = {"reply", "spontaneous"}
+GATED_KINDS = {"reply", "spontaneous", "broadcast"}
 
 
 def claim_or_suppress(kind: str, text: str, seconds: Optional[int] = None) -> bool:

@@ -83,6 +83,23 @@ def run_tests():
           core.claim_or_suppress("reply", "quick one") is True)
     core.save_config({"dup_reply_seconds": 3600}, announce=False)
 
+    # --- T1b: !say broadcast gate is sender-independent ------------------
+    # Regression: two DIFFERENT admins sending the identical !say text must
+    # produce exactly one broadcast (the chatroom duplicate).
+    reset()
+    core.save_config({"dup_reply_seconds": 3600}, announce=False)
+    b1 = core.claim_or_suppress("broadcast", "KaeKae test broadcast one")
+    b2 = core.claim_or_suppress("broadcast", "KaeKae test broadcast one")
+    b3 = core.claim_or_suppress("broadcast", "  kaeKae   TEST broadcast ONE!  ")
+    b4 = core.claim_or_suppress("broadcast", "KaeKae test broadcast TWO")
+    check("broadcast: first !say allowed", b1 is True)
+    check("broadcast: identical repeat from 2nd admin suppressed", b2 is False)
+    check("broadcast: case/punctuation variant suppressed", b3 is False)
+    check("broadcast: different text allowed", b4 is True)
+    check("broadcast: gate kind is registered", "broadcast" in core.GATED_KINDS)
+    check("broadcast: echo kind stays ungated",
+          core.claim_or_suppress("system", "[Mic Broadcast]: x") is True)
+
     # --- T2: inbound claim is idempotent -------------------------------
     reset()
     core.save_config({"screen_dup_seconds": 120}, announce=False)

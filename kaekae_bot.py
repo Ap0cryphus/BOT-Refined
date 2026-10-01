@@ -3382,6 +3382,16 @@ Keep under 250 characters!
             send_chat_message(f"@{clean_user}, !say is reserved for authorized creators.", override_mute=True)
             return
         text_to_say = m_say.group(1).strip()
+        # One-hour broadcast gate, keyed on the TEXT only (not the sender) so two
+        # different admins running the same !say are spoken exactly once.
+        # Checked BEFORE enqueue: a repeat never reaches the queue or the chat echo.
+        if _core is not None and not _core.claim_or_suppress("broadcast", text_to_say):
+            print(f"[SAY] Gate: suppressed repeat broadcast: {text_to_say[:70]!r}")
+            send_chat_message(
+                f"@{clean_user}, already broadcast that in the past hour - skipped.",
+                override_mute=True,
+            )
+            return
         # Enqueue for Terminal 2 instead of blocking this chat loop with synthesis/mic wait.
         if not enqueue_broadcast_task(text_to_say, persona=_config_persona()):
             send_chat_message(f"@{clean_user}, speech queue unavailable - could not queue.", override_mute=True)
