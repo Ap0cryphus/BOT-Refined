@@ -78,7 +78,7 @@ except ImportError:
 
 # Decoupled CEF dynamic probe, talk controller & audio filer
 try:
-    from cef_probe import global_probe, global_talk_controller, play_wav_to_virtual_cable, resolve_audio_output_device
+    from cef_probe import global_probe, global_talk_controller, play_wav_to_virtual_cable, resolve_audio_output_device, is_bot_name_strict
 except ImportError:
     global_probe = None
     global_talk_controller = None
@@ -328,11 +328,20 @@ class BotState:
         # !transcribe turns STT on with echo on; !transcribed turns ONLY the chat
         # echo off, so the room stops being spammed while the bot keeps hearing,
         # transcribing and storing everything.
-        self.transcript_echo_enabled = True
+        #
+        # DEFAULT IS OFF: the bot starts up already transcribing SILENTLY. It has
+        # always been capturing; posting those transcripts into the room by
+        # default is what makes it noisy, and the request is that entering
+        # !transcribe is what starts people appearing in chat.
+        self.transcript_echo_enabled = False
         self.voice_enabled = False         # Startup: OFF
-        self.chatty_mode = False           # Startup: OFF (!chat / !chat off)
+        self.chatty_mode = True            # Startup: ON (!chat / !chat off)
         self.repeat_mode = False           # Startup: OFF
         self.responses_muted = False       # Controlled via !shutup
+        # When True, command acknowledgements are POSTED to Camfrog chat. It is
+        # False by default: the bot reports status to the terminals only, so
+        # using a command does not print a wall of bot text into the room.
+        self.chat_command_acks = False
         
         self.bot_tone = "normal"           # normal, funny, happy, aggressive, roast
         self.last_voice_response_time = 0.0
@@ -740,6 +749,7 @@ def save_bot_runtime_state():
             "listening_enabled": state.listening_enabled,
             "transcribe_enabled": state.transcribe_enabled,
             "transcript_echo_enabled": state.transcript_echo_enabled,
+            "chat_command_acks": state.chat_command_acks,
             "chatty_mode": state.chatty_mode,
             "bot_tone": state.bot_tone,
             "voice_enabled": state.voice_enabled,
@@ -779,6 +789,8 @@ def load_bot_runtime_state():
             with open(STATE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             with state.lock:
+                if "chat_command_acks" in data:
+                    state.chat_command_acks = bool(data["chat_command_acks"])
                 if "transcript_echo_enabled" in data:
                     state.transcript_echo_enabled = bool(data["transcript_echo_enabled"])
                 if "transcribe_enabled" in data:
@@ -2133,12 +2145,53 @@ def known_speaker_identities() -> List[str]:
     return pool
 
 
+def read_ocr_speaker_name() -> str:
+    """OCR the active-speaker name bubble, validated against known identities.
+
+    This is the signal that was MEASURED to be authoritative: during every mic
+    grab the bubble read 'KaeKaeToad' stably on consecutive samples, while the
+    CEF node text stopped exposing the speaker entirely. So OCR is tried FIRST
+    here, and the CEF text path is only a fallback.
+
+    The OCR text is never trusted blindly - it is confirmed against the known
+    identity pool, so a garbled read resolves to nothing rather than to a
+    plausible-looking wrong name. Returns "" when nothing matches.
+    """
+    controller = global_talk_controller
+    if controller is None:
+        return ""
+    try:
+        if not controller._ocr_available():
+            return ""
+        raw, ok = controller.read_speaker_name_verbose()
+    except Exception:
+        return ""
+    if not ok or not raw:
+        return ""
+    if is_bot_name_strict(raw):
+        return raw
+    matched = _presence.match_known_users([raw], known_speaker_identities()) \
+        if _presence is not None else []
+    if matched:
+        return matched[0]
+    cleaned = re.sub(r'[^A-Za-z0-9_$\-]', '', raw)
+    if cleaned and cleaned.lower() not in IGNORED_USERS and is_valid_camfrog_username(cleaned):
+        return cleaned
+    return ""
+
+
 def find_active_speaker(win) -> str:
     """
-    Finds the active microphone speaker's username using Chromium UIA inspection.
-    CEF-only: text/node labels adjacent to the Talk button are resolved against
-    known room members (e.g. 'OMGitsMyPHONE').
+    Finds the active microphone speaker's username.
+
+    OCR of the active-speaker bubble is tried FIRST because it is the only
+    signal proven to survive during a real mic session; the CEF/UIA node text is
+    the fallback for when OCR is unavailable or unreadable.
     """
+    ocr_name = read_ocr_speaker_name()
+    if ocr_name:
+        return ocr_name
+
     if not win:
         return "Unknown speaker"
 
@@ -2476,6 +2529,29 @@ def split_into_chat_chunks(text: str, max_len: int = MAX_MSG_LENGTH) -> List[str
         remaining = remaining[split_at:].strip()
     return chunks
 
+def is_command_ack(text: str) -> bool:
+    """True when a message is command/status feedback rather than conversation.
+
+    Command acknowledgements are recognisable without tagging every call site:
+    they are the timestamped system banners the bot posts after handling a
+    command ("(10/01I09:24:08) Live microphone transcription is OFF.") plus a few
+    bracketed control prefixes. Ordinary replies and the transcript echo are NOT
+    acknowledgements, so this never swallows actual conversation.
+
+    With chat_command_acks False these are printed to the terminal and dropped
+    instead of being typed into the room, which is what keeps command use from
+    filling the chat feed with bot status.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if re.match(r'^\(\d{2}/\d{2}I\d{2}:\d{2}:\d{2}\)', raw):
+        return True
+    if raw.startswith(("[CEF Talk]", "[Presence]", "[Room Users", "[Mic Broadcast]")):
+        return True
+    return False
+
+
 def send_chat_message(answer: str, announce: bool = True, override_mute: bool = False):
     """
     Types a message into Camfrog chat text box using clipboard + Enter.
@@ -2488,6 +2564,13 @@ def send_chat_message(answer: str, announce: bool = True, override_mute: bool = 
     with state.lock:
         if state.responses_muted and not override_mute:
             print("[CHAT] Muted: Skipping spontaneous send.")
+            return
+        # Command/status acknowledgements go to the TERMINAL only unless acks are
+        # explicitly enabled. This is a single gate rather than an edit at every
+        # call site, so a new command cannot accidentally start printing to the
+        # room again.
+        if not state.chat_command_acks and is_command_ack(answer):
+            print(f"[CHAT ACK SUPPRESSED] {answer}")
             return
 
     # Outbox mode (Terminal 2/3): hand the line to Terminal 1, the single writer.

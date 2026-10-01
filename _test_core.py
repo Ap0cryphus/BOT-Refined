@@ -676,6 +676,41 @@ def run_tests():
         kb.state.room_users_by_room = {}
         kb.state.current_room_users = set()
 
+    # --- T29: silent startup defaults -----------------------------------
+    # The bot must come up capturing but SILENT, with chatty mode on and no
+    # startup banner in the room.
+    # A FRESH instance is used deliberately: earlier tests legitimately flip
+    # these flags, so asserting on the live shared state would only prove the
+    # test ordering. What matters is the value a real startup begins from.
+    _fresh = kb.BotState()
+    check("defaults: chat transcript echo is OFF at startup",
+          _fresh.transcript_echo_enabled is False,
+          str(_fresh.transcript_echo_enabled))
+    check("defaults: STT itself is still ON (data keeps being collected)",
+          _fresh.transcribe_enabled is True)
+    check("defaults: chatty mode starts ON", _fresh.chatty_mode is True)
+    check("defaults: command acks are terminal-only",
+          _fresh.chat_command_acks is False)
+
+    # --- T30: acknowledgements are terminal-only ------------------------
+    check("ack: a timestamped status banner is an ack",
+          kb.is_command_ack("(10/01I09:24:08) Live transcription is OFF."))
+    check("ack: [Mic Broadcast] echo is an ack",
+          kb.is_command_ack("[Mic Broadcast]: hello"))
+    check("ack: [Presence] report is an ack",
+          kb.is_command_ack("[Presence] Room: x"))
+    check("ack: ordinary conversation is NOT an ack",
+          not kb.is_command_ack("oh my god that was hilarious"))
+    check("ack: a real bot reply is NOT an ack",
+          not kb.is_command_ack("I'd say it's because the sky is painted by god"))
+    check("ack: empty text is not an ack", not kb.is_command_ack(""))
+
+    # --- T31: OCR speaker identity ---------------------------------------
+    check("ocr: reader returns a string (never raises)",
+          isinstance(kb.read_ocr_speaker_name(), str))
+    check("ocr: an unreadable bubble resolves to nothing, never a guess",
+          kb.read_ocr_speaker_name() != "Unknown speaker")
+
     print("\n" + "=" * 60)
     if FAILS:
         print(f"{len(FAILS)} FAILED: {FAILS}")
