@@ -71,6 +71,26 @@ print("=" * 76 + "\n")
 _stop = threading.Event()
 _presynth_busy = threading.Event()
 
+# Minimum wall-clock gap between two consecutive broadcasts, so a backlog is
+# SPOKEN rather than dumped. The queue is FIFO and this consumer is single-
+# threaded, so items already play one at a time - but back-to-back with no gap a
+# burst of triggers comes out as one continuous stream, which is exactly the
+# "spamming the room" behaviour we are avoiding. Each line gets breathing room
+# and the mic is released in between.
+_BROADCAST_GAP_S = 2.5
+_last_broadcast_finished = 0.0
+
+
+def _respect_broadcast_gap():
+    """Waits out the inter-broadcast gap, measured from the END of the last one."""
+    global _last_broadcast_finished
+    if not _last_broadcast_finished:
+        return
+    wait = _BROADCAST_GAP_S - (time.time() - _last_broadcast_finished)
+    if wait > 0:
+        print(f"[SPEECH QUEUE] Pacing: {wait:.1f}s before next broadcast.")
+        time.sleep(wait)
+
 
 def presynth_loop():
     """Renders queued broadcasts to WAV AHEAD of time, off the microphone.
@@ -132,6 +152,7 @@ def presynth_loop():
 
 def speech_queue_consumer_loop():
     """Consumes broadcast tasks and speaks them with a real, reported result."""
+    global _last_broadcast_finished
     print("[AUDIO WORKER] Broadcast consumer online.")
     if global_probe is not None and not getattr(global_probe, "running", False):
         try:
@@ -150,6 +171,13 @@ def speech_queue_consumer_loop():
         if not task:
             time.sleep(0.2)
             continue
+        try:
+            global _BROADCAST_GAP_S
+            _BROADCAST_GAP_S = float(core.load_config().get(
+                "broadcast_gap_seconds", 2.5)) if core is not None else 2.5
+        except Exception:
+            pass
+        _respect_broadcast_gap()
 
         text = (task.get("text") or "").strip()
         if not text:
@@ -187,6 +215,11 @@ def speech_queue_consumer_loop():
                     output_device=AUDIO_OUTPUT_DEVICE, persona=persona,
                     pre_rendered_wav=wav_path if duration else "",
                     pre_rendered_duration=duration,
+                    # The one-hour gate was already applied when this task was
+                    # enqueued. speak_and_hold gates again by default, and since
+                    # the gate keys on text alone it would suppress the line
+                    # against its own enqueue claim and never speak.
+                    gate=False,
                 )
             except Exception as e:
                 print(f"[AUDIO WORKER] Broadcast exception: {e}")
@@ -205,6 +238,16 @@ def speech_queue_consumer_loop():
                   f"playback={result.get('playback_ok')} engine={result.get('engine')} "
                   f"speaker={result.get('observed_speaker')!r} attempts={result.get('attempts')}"
                   + (f" reason={result.get('reason')!r}" if result.get("reason") else ""))
+
+        # Retention: the render is kept until it is actually broadcast. Only a
+        # genuine success frees it - a failed attempt must keep its audio so the
+        # retry can go out immediately instead of re-synthesizing.
+        if ok and core is not None and wav_path:
+            try:
+                if core.drop_cached_audio(wav_path):
+                    print(f"[SPEECH QUEUE] Released cached render after broadcast.")
+            except Exception as e:
+                print(f"[SPEECH QUEUE] Cache release notice: {e}")
 
         # Always record the real outcome. A failed broadcast that leaves no trace
         # is indistinguishable from one that was never attempted.
@@ -274,6 +317,7 @@ def speech_queue_consumer_loop():
                         pass
 
         print(f"[SPEECH QUEUE] Finished: \"{text}\"\n")
+        _last_broadcast_finished = time.time()
     print("[AUDIO WORKER] Broadcast consumer stopped.")
 
 
@@ -353,4 +397,14 @@ if __name__ == "__main__":
                 global_talk_controller.release_mic()
         except Exception:
             pass
+        # Retention rule: rendered audio lives until it is broadcast or the bot
+        # stops. On stop the cache is wiped, so a restart begins with a clean
+        # slate rather than replaying audio from a previous session.
+        try:
+            if core is not None:
+                n = core.clear_broadcast_cache()
+                if n:
+                    print(f"[AUDIO WORKER] Cleared {n} cached render(s) on shutdown.")
+        except Exception as e:
+            print(f"[AUDIO WORKER] Cache cleanup notice: {e}")
         print("\n[AUDIO WORKER] Stopped cleanly. Mic released.")

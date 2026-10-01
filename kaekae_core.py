@@ -519,10 +519,56 @@ def wav_duration_seconds(wav_path: str) -> float:
         return 0.0
 
 
-def cache_path_for_text(text: str) -> str:
-    """Stable per-text cache filename, so identical wording reuses its render."""
-    digest = hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest()[:16]
+def cache_path_for_text(text: str, engine_tag: str = "") -> str:
+    """Stable per-text cache filename, so identical wording reuses its render.
+
+    `engine_tag` participates in the hash so switching TTS voices/engines cannot
+    silently serve audio rendered by the previous voice - which would sound like
+    the model had ignored the change."""
+    seed = f"{engine_tag}|{text}" if engine_tag else text
+    digest = hashlib.sha1(seed.encode("utf-8", "ignore")).hexdigest()[:16]
     return os.path.join("broadcast_cache", f"{digest}.wav")
+
+
+def clear_broadcast_cache() -> int:
+    """Wipes every cached render. Called on shutdown, per the retention rule:
+    rendered audio is kept until it is broadcast or the bot stops - never
+    expired on a timer. Returns the number of files removed."""
+    removed = 0
+    folder = p("broadcast_cache")
+    if not os.path.isdir(folder):
+        return 0
+    for name in os.listdir(folder):
+        if not name.lower().endswith(".wav"):
+            continue
+        try:
+            os.remove(os.path.join(folder, name))
+            removed += 1
+        except Exception:
+            pass
+    return removed
+
+
+def drop_cached_audio(wav_path: str) -> bool:
+    """Removes one render once it has actually been broadcast.
+
+    Until then the file is the reason the mic grab can be instantaneous, so it is
+    kept indefinitely. After a successful broadcast it has served its purpose and
+    is freed."""
+    if not wav_path:
+        return False
+    try:
+        target = os.path.abspath(wav_path)
+        folder = os.path.abspath(p("broadcast_cache"))
+        # Only ever delete inside our own cache directory.
+        if not target.startswith(folder) or not target.lower().endswith(".wav"):
+            return False
+        if os.path.exists(target):
+            os.remove(target)
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def render_broadcast_audio(text: str, persona: str = "", voice: str = "",
@@ -550,7 +596,7 @@ def render_broadcast_audio(text: str, persona: str = "", voice: str = "",
     pitch = pitch or cfg.get("voice_pitch", "+16Hz")
     persona = persona or cfg.get("elevenlabs_persona", "valley")
 
-    path = cache_path_for_text(text)
+    path = cache_path_for_text(text, engine_tag=f"{voice}|{rate}|{pitch}|{persona}")
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
     except Exception:
@@ -595,7 +641,23 @@ def enqueue_broadcast(text: str, persona: str = "", voice: str = "",
 
     The audio is NOT rendered here. Queueing must stay instant so the chat
     worker never blocks on a multi-second TTS call; the consumer's pre-synthesis
-    thread renders ahead of the item it is about to speak."""
+    thread renders ahead of the item it is about to speak.
+
+    The one-hour gate is applied HERE, centrally, rather than in each caller.
+    It has to live here because the gate store is keyed on normalized TEXT only
+    (claim_or_suppress ignores `kind`), so the moment two different components
+    both gate the same line the second one suppresses the first. That is exactly
+    what was happening: the !say handler claimed the text as "broadcast", then
+    Terminal 2's speak_and_hold claimed the very same text again as "reply" and
+    refused to speak it - so every single queued broadcast was cancelled by the
+    bot's own repeat protection. Gating once, at enqueue, fixes that and also
+    covers the dashboard's queue_speech(), which previously bypassed the gate
+    entirely and could re-broadcast the same line all hour."""
+    if not claim_or_suppress("broadcast", text):
+        log_event("broadcast_enqueue", source=source, decision="suppressed",
+                  text=str(text)[:120])
+        return False
+
     task = {
         "text": str(text),
         "persona": persona,

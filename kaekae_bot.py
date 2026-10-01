@@ -347,6 +347,11 @@ class BotState:
 
         # Unified Deduplication, History Priming & Memory
         self.seen_message_signatures: Set[str] = set()
+        # Trigger (`!...`) dedupe. Deliberately NOT persisted: it only guards
+        # against the 0.25s chat re-scan re-dispatching a line that is still on
+        # screen, so it is a screen artefact rather than history. See
+        # claim_and_dispatch() for why this must reset on restart.
+        self.seen_trigger_signatures: Set[str] = set()
         self.history_primed: bool = False
         self.startup_disclaimer_sent: bool = False
         self.mod_recent_events_cache: Dict[str, float] = {}  # 5-minute moderation-event comparison
@@ -383,6 +388,67 @@ state = BotState()
 # ==============================================================================
 # BLOCK 3: DATE/TIME FORMATTING & INPUT SANITIZATION
 # ==============================================================================
+
+def parse_chat_timestamp(ts: str) -> Optional[datetime]:
+    """Best-effort parse of a Camfrog chat timestamp ('5:48 AM', '17:48', ...).
+
+    Returns None when the format is not recognised, which callers must treat as
+    UNKNOWN rather than as "just now"."""
+    if not ts:
+        return None
+    raw = str(ts).strip().strip("[]()")
+    if not raw:
+        return None
+    today = datetime.now()
+    # Note: do NOT .upper() the value. That rewrites the AM/PM designator and
+    # turns the %p directive into %P, which matches nothing - every timestamp
+    # silently failed to parse and trigger_is_stale() returned False for
+    # everything, so the staleness gate never fired at all. The time text is
+    # digit/colon-led, so case is irrelevant anyway.
+    raw = raw.replace(" ", "").upper() if "AM" not in raw.upper() and "PM" not in raw.upper() \
+        else raw.replace(" ", "")
+    for fmt in ("%I:%M%p", "%I:%M:%S%p", "%H:%M", "%H:%M:%S"):
+        try:
+            parsed = datetime.strptime(raw, fmt)
+            return datetime.combine(today.date(), parsed.time())
+        except Exception:
+            continue
+    return None
+
+
+def trigger_is_stale(timestamp: str, max_age_s: float) -> bool:
+    """True when a command line is too OLD to act on.
+
+    Camfrog re-renders the whole visible chat history on every scan, so a `!say`
+    posted five minutes ago is still sitting on screen and gets re-read forever.
+    Acting on it would mean the bot joins a room and immediately fires commands
+    that were never aimed at this session.
+
+    The one-hour no-repeat gate is deliberately NOT enough for this: it is
+    persistent (so it survives restarts) and it only knows about text it has
+    already sent, not about how old a command is.
+
+    Unparseable timestamps are treated as FRESH, because refusing every command
+    whose clock we failed to read would silently break all triggers; the OCR
+    timestamp is best-effort by nature.
+    """
+    parsed = parse_chat_timestamp(timestamp)
+    if parsed is None:
+        return False
+    age = (datetime.now() - parsed).total_seconds()
+    # Camfrog renders clock times with NO date, so a line from yesterday reads
+    # identically to today's line. Disambiguation is genuinely impossible from
+    # the clock alone, so this stays CONSERVATIVE in one direction only:
+    #   - a line clearly in the PAST beyond the freshness window is stale
+    #   - a line in the FUTURE (up to ~11h) is treated as fresh, because a
+    #     command cannot have come from the future and the likely causes are a
+    #     12/24h clock reading or the OCR dropping the AM/PM marker
+    #   - a line MORE than half a day in the future is stale: that clock time
+    #     cannot belong to today at all, so it is an old line we misread
+    if age > float(max_age_s):
+        return True
+    return age < -11 * 3600
+
 
 def format_bot_timestamp(dt: Optional[datetime] = None) -> str:
     """
@@ -3241,6 +3307,32 @@ def claim_and_dispatch(clean_user: str, timestamp: str, message: str,
         if is_cmd:
             _log_cmd_miss(clean_user, raw_m, "empty_sender_or_message", source)
         return False
+
+    # Trigger freshness. Camfrog re-renders the entire visible chat history on
+    # every scan, so a `!say` posted minutes ago is still on screen and is
+    # re-read forever. Acting on it means the bot joins a room and immediately
+    # fires commands that were never aimed at this session, so a command older
+    # than `trigger_max_age_s` is consumed and dropped.
+    #
+    # This is deliberately separate from the one-hour no-repeat gate: that gate
+    # is persistent across restarts and only knows what the bot has already
+    # SAID, not how old an incoming command is.
+    if is_cmd and not trusted:
+        try:
+            max_age = float(_core.load_config().get("trigger_max_age_s", 90)) \
+                if _core is not None else 90.0
+        except Exception:
+            max_age = 90.0
+        if trigger_is_stale(timestamp, max_age):
+            print(f"[TRIGGER] Ignoring stale command from chat "
+                  f"({timestamp!r} > {max_age:.0f}s old): {raw_m[:60]!r}")
+            try:
+                _core.log_event("cmd_miss", reason="stale_trigger",
+                                sender=str(clean_user)[:40], source=source,
+                                timestamp=str(timestamp)[:40], text=str(raw_m)[:140])
+            except Exception:
+                pass
+            return False
     clean_u = str(clean_user).strip(": \t\r\n")
     if not clean_u or len(clean_u) < 2 or len(clean_u) > 20:
         if is_cmd:
@@ -3274,7 +3366,34 @@ def claim_and_dispatch(clean_user: str, timestamp: str, message: str,
     # Durable, timestamp-free claim - persisted BEFORE any dispatch/logging
     if _core is not None:
         sig = _core.make_chat_signature(state.current_focused_room, clean_u, raw_m)
-        if not _core.claim_message(sig, room=state.current_focused_room):
+        # Trigger dedupe is deliberately EPHEMERAL. It only has to stop the same
+        # command being re-dispatched by the 0.25s chat re-scan while the line
+        # is still on screen, so an in-process set is enough - and it is the
+        # correct behaviour on restart: a bot that joins a room must be willing
+        # to act on a trigger it has not seen before, rather than being blocked
+        # forever by a claim left in disk by a previous run.
+        #
+        # The one-hour no-repeat gate on OUTBOUND text stays fully persistent.
+        # Those are different jobs: "have I already dispatched this line?" is a
+        # short-lived screen artefact, "did I already say this?" must outlive
+        # the process.
+        if is_cmd:
+            if not trusted:
+                with state.lock:
+                    if sig in state.seen_trigger_signatures:
+                        return False
+                    state.seen_trigger_signatures.add(sig)
+                    if len(state.seen_trigger_signatures) > 2000:
+                        state.seen_trigger_signatures = set(
+                            list(state.seen_trigger_signatures)[-1000:])
+            else:
+                # Trusted inbox commands arrive once from Terminal 3; still
+                # deduped in-process so a double drain cannot double-fire.
+                with state.lock:
+                    if sig in state.seen_trigger_signatures:
+                        return False
+                    state.seen_trigger_signatures.add(sig)
+        elif not _core.claim_message(sig, room=state.current_focused_room):
             return False
     else:
         # Fallback: in-memory claim if kaekae_core is unavailable
@@ -3791,19 +3910,17 @@ Keep under 250 characters!
             send_chat_message(f"@{clean_user}, !say is reserved for authorized creators.", override_mute=True)
             return
         text_to_say = m_say.group(1).strip()
-        # One-hour broadcast gate, keyed on the TEXT only (not the sender) so two
-        # different admins running the same !say are spoken exactly once.
-        # Checked BEFORE enqueue: a repeat never reaches the queue or the chat echo.
-        if _core is not None and not _core.claim_or_suppress("broadcast", text_to_say):
-            print(f"[SAY] Gate: suppressed repeat broadcast: {text_to_say[:70]!r}")
+        # The one-hour broadcast gate is applied inside enqueue_broadcast(), not
+        # here. It used to be checked here AND again by Terminal 2's
+        # speak_and_hold; because the gate keys on text alone, the second check
+        # saw the first one's claim and suppressed the line it had just let
+        # through, so nothing was ever spoken. One gate, applied once.
+        # Enqueue for Terminal 2 instead of blocking this chat loop with synthesis/mic wait.
+        if not enqueue_broadcast_task(text_to_say, persona=_config_persona()):
             send_chat_message(
                 f"@{clean_user}, already broadcast that in the past hour - skipped.",
                 override_mute=True,
             )
-            return
-        # Enqueue for Terminal 2 instead of blocking this chat loop with synthesis/mic wait.
-        if not enqueue_broadcast_task(text_to_say, persona=_config_persona()):
-            send_chat_message(f"@{clean_user}, speech queue unavailable - could not queue.", override_mute=True)
             return
         send_chat_message(f"[Mic Broadcast]: {text_to_say}", override_mute=True)
         return

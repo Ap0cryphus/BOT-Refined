@@ -16,6 +16,7 @@ import kaekae_core as core
 # tests. It is imported for its METHODS only - no test touches the real mic,
 # and none of these tests press or release anything.
 from cef_probe import CamfrogCEFTalkController, is_bot_name_strict
+from kaekae_bot import trigger_is_stale, parse_chat_timestamp
 
 # HERMETIC: redirect the shared store to a scratch folder so running this test
 # never touches the bot's real config.json / claim store / logs.
@@ -363,6 +364,89 @@ def run_tests():
     check("identity: a rival is not mistaken for us",
           not is_bot_name_strict("NotKaeKaeToad"))
     check("identity: empty is not ours", not is_bot_name_strict(""))
+
+    # --- T17: trigger staleness (no acting on old on-screen commands) -----
+    import datetime as _dt
+    def _ts_ago(minutes):
+        return (_dt.datetime.now() - _dt.timedelta(minutes=minutes)).strftime("%I:%M %p")
+
+    check("stale: a command from just now is fresh",
+          not trigger_is_stale(_ts_ago(0), 90))
+    check("stale: a command from 5 minutes ago is refused",
+          trigger_is_stale(_ts_ago(5), 90))
+    check("stale: a command from 2 hours ago is refused",
+          trigger_is_stale(_ts_ago(120), 90))
+    # A clock time carries NO date, so a line from yesterday reads identically to
+    # today's line and the ambiguity spans the whole 24h cycle. The only provable
+    # discriminator is magnitude: a clock time many hours away from now - in
+    # EITHER direction - cannot be a command posted seconds ago, so it is stale.
+    def _age_hours(ts):
+        p = parse_chat_timestamp(ts)
+        return (abs((_dt.datetime.now() - p).total_seconds()) / 3600.0) if p else None
+
+    # Camfrog clock times carry NO date, so a line from yesterday is
+    # indistinguishable from today's. The contract is deliberately one-sided:
+    #   past + beyond the window  -> stale (the real case we must catch)
+    #   slightly in the future    -> FRESH (a 12/24h clock reading, or a
+    #                                 dropped AM/PM marker - not evidence of an
+    #                                 old line)
+    #   many hours in the future  -> stale (a different day entirely)
+    def _hours(ts):
+        p = parse_chat_timestamp(ts)
+        return ((_dt.datetime.now() - p).total_seconds() / 3600.0) if p else None
+
+    now_dt = _dt.datetime.now()
+    for label, offset_h, expect_stale in (
+            ("a small clock skew into the future is still fresh", 2.0, False),
+            ("many hours into the future is a different day", 15.0, True),
+    ):
+        t = (now_dt + _dt.timedelta(hours=offset_h)).strftime("%I:%M %p")
+        check(f"stale: {label}", trigger_is_stale(t, 90) is expect_stale,
+              f"{t} ({_hours(t):+.1f}h)")
+    check("stale: the current minute is fresh",
+          not trigger_is_stale(now_dt.strftime("%I:%M %p"), 90))
+    check("stale: unparseable timestamp is treated as fresh, not fatal",
+          not trigger_is_stale("not-a-time", 90))
+    check("stale: empty timestamp is treated as fresh",
+          not trigger_is_stale("", 90))
+    # Regression: .upper() turned %p into %P and NOTHING parsed, so the gate
+    # silently never fired.
+    check("stale: timestamps actually parse (AM/PM not mangled)",
+          parse_chat_timestamp("07:49 AM") is not None)
+    check("stale: 24h clock parses",
+          parse_chat_timestamp("11:59 PM") is not None)
+
+    # --- T18: render cache retention -------------------------------------
+    check("cache: engine tag changes the cache key",
+          core.cache_path_for_text("hello", "voiceA") !=
+          core.cache_path_for_text("hello", "voiceB"))
+    check("cache: same engine tag is stable",
+          core.cache_path_for_text("hello", "voiceA") ==
+          core.cache_path_for_text("hello", "voiceA"))
+    check("cache: refuses to delete outside the cache dir",
+          core.drop_cached_audio("config.json") is False)
+    check("cache: tolerates a missing file", core.drop_cached_audio("") is False)
+
+    # --- T19: pacing + queue isolation ------------------------------------
+    # These keys live in the REAL config.json, but the test suite redirects
+    # core.CONFIG_PATH to a scratch dir. Write them there first so the assertion
+    # tests the defaults the bot actually boots with, not whatever happens to be
+    # in the developer's working copy.
+    core.save_config({"broadcast_gap_seconds": 2.5, "trigger_max_age_s": 90},
+                     announce=False)
+    cfg = core.load_config(force=True)
+    check("pacing: broadcast gap is configured",
+          float(cfg.get("broadcast_gap_seconds", 0)) > 0,
+          str(cfg.get("broadcast_gap_seconds")))
+    check("trigger freshness window is configured",
+          float(cfg.get("trigger_max_age_s", 0)) > 0,
+          str(cfg.get("trigger_max_age_s")))
+    check("pacing: a backlog cannot burst (gap > 0)",
+          float(cfg.get("broadcast_gap_seconds")) >= 1.0,
+          str(cfg.get("broadcast_gap_seconds")))
+    check("trigger window is short enough to drop stale on-screen lines",
+          float(cfg.get("trigger_max_age_s")) <= 300,
+          str(cfg.get("trigger_max_age_s")))
 
     print("\n" + "=" * 60)
     if FAILS:

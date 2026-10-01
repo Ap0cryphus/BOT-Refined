@@ -692,16 +692,21 @@ def _config() -> Dict[str, Any]:
 
 
 def synthesize_with_qwen(text: str, wav_path: str = "temp_say_broadcast.wav",
-                         speaker: str = "vivian",
+                         speaker: str = "",
                          model_id: str = "") -> bool:
     """
     Local Qwen3-TTS CustomVoice synthesis (CPU). The model is cached in a module
     singleton so Terminal 2 pays the ~4.5s load once, not per broadcast.
+
+    `speaker` defaults to "" so config.json WINS. It used to default to the
+    literal "vivian", which silently overrode the configured `qwen_speaker` and
+    made a voice change appear to do nothing.
     """
     global _QWEN_MODEL
     cfg = _config()
     model_id = model_id or cfg.get("qwen_model_id", "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice")
     speaker = speaker or cfg.get("qwen_speaker", "vivian")
+    language = (cfg.get("qwen_language") or "English").strip() or "English"
     try:
         import numpy as np
         import soundfile as sf
@@ -722,13 +727,45 @@ def synthesize_with_qwen(text: str, wav_path: str = "temp_say_broadcast.wav",
             _QWEN_MODEL = None
             return False
 
+    # Ask the MODEL which speakers/languages it actually has instead of
+    # hardcoding a list. The speaker table lives in the weights, not in
+    # config.json, so a wrong guess here fails at synthesis time with an opaque
+    # error; querying it turns a bad config into a clear warning.
+    supported = None
     try:
-        wavs, sr = _QWEN_MODEL.generate_custom_voice(text=text, language="English", speaker=speaker)
+        getter = getattr(_QWEN_MODEL, "get_supported_speakers", None)
+        if callable(getter):
+            supported = getter()
+            if isinstance(supported, (list, tuple)) and supported and speaker not in supported:
+                print(f"[QWEN TTS] Speaker {speaker!r} not in model list "
+                      f"({', '.join(map(str, supported))}); trying it anyway.")
+    except Exception:
+        supported = None
+
+    try:
+        wavs, sr = _QWEN_MODEL.generate_custom_voice(
+            text=text, language=language, speaker=speaker)
         audio = np.asarray(wavs[0], dtype="float32")
         sf.write(wav_path, audio, sr)
-        print(f"[QWEN TTS] Synthesized '{speaker}' -> {wav_path} ({len(audio)/float(sr):.2f}s @ {sr}Hz)")
+        print(f"[QWEN TTS] Synthesized '{speaker}' [{language}] -> {wav_path} "
+              f"({len(audio)/float(sr):.2f}s @ {sr}Hz)")
         return True
     except Exception as e:
+        # An unsupported language is a config mistake, not a dead engine: fall
+        # back once so a bad `qwen_language` can never silence the bot entirely.
+        if language.lower() != "english":
+            print(f"[QWEN TTS] Language {language!r} failed ({e}); retrying as English.")
+            try:
+                wavs, sr = _QWEN_MODEL.generate_custom_voice(
+                    text=text, language="English", speaker=speaker)
+                audio = np.asarray(wavs[0], dtype="float32")
+                sf.write(wav_path, audio, sr)
+                print(f"[QWEN TTS] Synthesized '{speaker}' [English fallback] -> {wav_path} "
+                      f"({len(audio)/float(sr):.2f}s @ {sr}Hz)")
+                return True
+            except Exception as e2:
+                print(f"[QWEN TTS] Fallback synthesis failed: {e2}")
+                return False
         print(f"[QWEN TTS] Synthesis failed: {e}")
         return False
 

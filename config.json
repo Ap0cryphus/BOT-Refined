@@ -3,7 +3,7 @@
   "engine": "qwen",
   "reply_engine": "",
   "qwen_model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-  "qwen_speaker": "vivian",
+  "qwen_speaker": "ono_anna",
   "edge_voice": "en-US-AvaNeural",
   "elevenlabs_api_key": "",
   "elevenlabs_persona": "valley",
@@ -95,5 +95,8 @@
   ],
   "talk_quiet_window_s": 1.0,
   "talk_quiet_timeout_s": 15.0,
-  "talk_min_audio_fraction": 0.5
+  "talk_min_audio_fraction": 0.5,
+  "qwen_language": "English",
+  "trigger_max_age_s": 90,
+  "broadcast_gap_seconds": 2.5
 }
