@@ -3174,6 +3174,52 @@ def handle_moderation_query(requester: str, action_filter: str, target_user: str
 # BLOCK 14: MAIN MESSAGE DISPATCHER & COMMAND PARSER
 # ==============================================================================
 
+# ------------------------------------------------------------------------------
+# Capture diagnostics - prove whether a line was SEEN by the bot at all.
+# A dropped command used to be completely invisible: claim_and_dispatch has many
+# early returns and the CEF scan silently skips nodes. These logs make both
+# observable, so "the bot ignored my !say" can be settled from disk.
+# ------------------------------------------------------------------------------
+_dom_sample_seq = 0
+_dom_sample_last = 0.0
+_cmd_miss_counts: Dict[str, int] = {}
+
+
+def _log_cmd_miss(sender: str, message: str, reason: str, source: str = "cef") -> None:
+    """Records a line that reached the bot but was NOT dispatched."""
+    _cmd_miss_counts[reason] = _cmd_miss_counts.get(reason, 0) + 1
+    if _core is None:
+        return
+    try:
+        _core.log_event("cmd_miss", reason=reason, sender=str(sender)[:40],
+                        source=source, count=_cmd_miss_counts[reason],
+                        text=str(message)[:140])
+    except Exception:
+        pass
+
+
+def sample_dom_snapshot(texts: List[str], force: bool = False) -> None:
+    """Periodically records the exact CEF node list being sampled.
+
+    If a !say is absent here, it was never visible to the bot (capture miss).
+    If present here but absent from claim logs, it was dropped downstream."""
+    global _dom_sample_seq, _dom_sample_last
+    now = time.time()
+    if not force and now - _dom_sample_last < 5.0:
+        return
+    _dom_sample_last = now
+    _dom_sample_seq += 1
+    if _core is None:
+        return
+    try:
+        bang = [t[:120] for t in texts if t.lstrip().startswith("!")]
+        _core.log_event("dom_sample", seq=_dom_sample_seq, node_count=len(texts),
+                        bang_lines=len(bang), bang=bang[:12],
+                        tail=[t[:80] for t in texts[-6:]])
+    except Exception:
+        pass
+
+
 def claim_and_dispatch(clean_user: str, timestamp: str, message: str,
                        source: str = "cef", trusted: bool = False) -> bool:
     """
@@ -3185,20 +3231,28 @@ def claim_and_dispatch(clean_user: str, timestamp: str, message: str,
     - Commands and ordinary text go through the SAME claim (no bypass path).
     Returns True only for the first, winning claim.
     """
-    if not clean_user or not message:
+    is_cmd = raw_m.lstrip().startswith("!") if (raw_m := str(message or "").strip()) else False
+    if not clean_user or not raw_m:
+        if is_cmd:
+            _log_cmd_miss(clean_user, raw_m, "empty_sender_or_message", source)
         return False
     clean_u = str(clean_user).strip(": \t\r\n")
-    raw_m = str(message).strip()
     if not clean_u or len(clean_u) < 2 or len(clean_u) > 20:
+        if is_cmd:
+            _log_cmd_miss(clean_u, raw_m, "bad_sender_length", source)
         return False
     if not is_valid_camfrog_username(clean_u):
+        if is_cmd:
+            _log_cmd_miss(clean_u, raw_m, "invalid_username", source)
         return False
     if "[mic]" in clean_u.lower() or "[mic]" in raw_m.lower():
         return False
 
     u_low = clean_u.lower()
     if not is_authorized_user(clean_u):
-        if u_low in BOT_ALT_USERNAMES or u_low == BOT_USERNAME.lower() or "kaekae" in u_low or u_low in IGNORED_USERS:
+        if u_low in BOT_ALT_USERNAMES or u_low == BOT_USERNAME.lower() or "kaekae" in u_low or u_low in IGNORED_USERS or is_ignored_name(u_low):
+            if is_cmd:
+                _log_cmd_miss(clean_u, raw_m, "sender_ignored", source)
             return False
         # Never ingest our own recently-sent chat lines (echo guard)
         norm_m = " ".join(raw_m.lower().split())
@@ -3206,6 +3260,8 @@ def claim_and_dispatch(clean_user: str, timestamp: str, message: str,
             now_m = time.time()
             state.recent_bot_messages = {k: ts for k, ts in state.recent_bot_messages.items() if now_m - ts < 120}
             if norm_m in state.recent_bot_messages:
+                if is_cmd:
+                    _log_cmd_miss(clean_u, raw_m, "own_echo_guard", source)
                 return False
         if "kaekae is alpha testing" in norm_m or "alpha testing, debugging" in norm_m:
             return False
@@ -3563,6 +3619,45 @@ Keep under 250 characters!
             return
         send_chat_message(f"{format_bot_timestamp()} Chatty mode ON! I will be mingling in the room.", override_mute=True)
         return
+
+    # 12x. Capture diagnostics (Authorized Only) - forces a DOM snapshot on demand
+    if re.match(r'^!capture$', raw_msg, re.IGNORECASE) or re.match(r'^!capturestats$', raw_msg, re.IGNORECASE):
+        if not is_authorized_user(clean_user):
+            send_chat_message(f"@{clean_user}, !capture is reserved for authorized creators.", override_mute=True)
+            return
+        if re.match(r'^!capturestats$', raw_msg, re.IGNORECASE):
+            summary = ", ".join(f"{r}={c}" for r, c in sorted(_cmd_miss_counts.items(), key=lambda kv: -kv[1])[:8])
+            total = sum(_cmd_miss_counts.values())
+            send_chat_message(f"Missed commands: {total}. Top: {summary or 'none yet'}", override_mute=True)
+            print(f"[CAPTURE STATS] {_cmd_miss_counts}")
+            return
+        win_now = get_camfrog_window()
+        if win_now is None:
+            send_chat_message("Camfrog window not attached.", override_mute=True)
+            return
+        try:
+            nodes = []
+            for ctrl in win_now.descendants():
+                try:
+                    if (ctrl.element_info.control_type or "") in {"Text", "Hyperlink", "ListItem", "Edit", "Document", "Pane", "Custom"}:
+                        t = (ctrl.element_info.name or ctrl.window_text() or "").strip()
+                        if t:
+                            nodes.append(t)
+                except Exception:
+                    pass
+        except Exception as e:
+            send_chat_message(f"Capture scan failed: {e}", override_mute=True)
+            return
+        bangs = [t for t in nodes if t.lstrip().startswith("!")]
+        sample_dom_snapshot(nodes, force=True)
+        parsed_now = extract_chat_messages(nodes)
+        hit = [m for _, _, m in parsed_now if "bravo" in m.lower() or m.lstrip().startswith("!")]
+        send_chat_message(
+            f"Snapshot: {len(nodes)} nodes, {len(bangs)} command-looking, {len(parsed_now)} parsed. "
+            f"{'Saw: ' + hit[-1][:40] if hit else 'No command visible'}",
+            override_mute=True,
+        )
+        print(f"[CAPTURE] nodes={len(nodes)} bangs={len(bangs)} parsed={len(parsed_now)} hits={hit[-5:]}")
 
     # 12y. Talk-control / mic diagnostics (Authorized Only)
     if re.match(r'^!talkid$', raw_msg, re.IGNORECASE) or re.match(r'^!talkstatus$', raw_msg, re.IGNORECASE):
@@ -4128,6 +4223,10 @@ def main():
                             pass
                 except Exception:
                     pass
+
+                # 2b. Diagnostics: record the exact node list being sampled so a
+                # missed command can be proven as a CAPTURE miss vs a drop.
+                sample_dom_snapshot(texts)
 
                 # 3. Single claim-and-dispatch path (CEF is the only ingestion source)
                 parsed_msgs = extract_chat_messages(texts)
