@@ -149,6 +149,25 @@ def speech_queue_consumer_loop():
 
         # Re-queue a failed broadcast instead of destroying it, so a transient
         # failure (mic busy, TTS hiccup) does not silently eat the line.
+        reason_now = (result.get("reason") or "") if isinstance(result, dict) else ""
+        permanent = (
+            reason_now.startswith("suppressed:")
+            or reason_now.startswith("TTS synthesis failed")
+            or reason_now.startswith("GATE")
+        )
+        if not ok and permanent:
+            # A gate refusal or TTS failure is deterministic: retrying just burns
+            # attempts instantly and, worse, re-claims the same text each pass.
+            print(f"[SPEECH QUEUE] Not retrying ({reason_now}): {text[:60]!r}")
+            if core is not None:
+                try:
+                    core.log_event("broadcast", ok=False, skipped=True,
+                                   reason=reason_now, text=text[:120])
+                except Exception:
+                    pass
+            print(f"[SPEECH QUEUE] Finished: \"{text}\"\n")
+            continue
+
         if not ok:
             attempts = int(task.get("attempts", 0) or 0) + 1
             if attempts <= 3:

@@ -74,8 +74,12 @@ try:
 except Exception:
     _core = None
 
-COORDS_FILE = "camfrog_coords.json"
-CONFIG_FILE = "config.json"
+# Anchor these to the PROJECT ROOT, not the current working directory. They used
+# to be bare relative names, so a terminal started from another directory silently
+# found no file and fell back to the hardcoded (1480, 600) talk coordinate.
+_PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+COORDS_FILE = os.path.join(_PROJECT_ROOT, "camfrog_coords.json")
+CONFIG_FILE = os.path.join(_PROJECT_ROOT, "config.json")
 
 # UI chrome / non-speaker labels. Deliberately does NOT contain KaeKae's own
 # names: the verifier MUST be able to see our own name as the active speaker,
@@ -946,21 +950,36 @@ class CamfrogCEFTalkController:
         return os.environ.get("KAEKAE_TERMINAL", "t2")
 
     def _load_coordinates(self, force: bool = False) -> Dict[str, Any]:
-        """Auto-reloads coordinates from camfrog_coords.json if modified on disk."""
+        """Auto-reloads coordinates from camfrog_coords.json if modified on disk.
+
+        BUG FIXED: this used to iterate [COORDS_FILE, CONFIG_FILE] and `break` on
+        the first file that looked newer. config.json is edited far more often than
+        the coords file, so it almost always won - and since config.json has no
+        'talk_button' key, self.coords was replaced with the whole config and the
+        controller silently fell back to the hardcoded (1480, 600). The two files
+        are now tracked with separate mtimes and merged, never substituted.
+        """
         changed = False
-        for fname in [COORDS_FILE, CONFIG_FILE]:
-            if os.path.exists(fname):
-                try:
-                    mtime = os.path.getmtime(fname)
-                    if force or mtime > getattr(self, "_coords_mtime", 0.0) or not self.coords:
-                        with open(fname, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-                            self.coords = data.get("camfrog_ui_layout", data)
-                            self._coords_mtime = mtime
-                            changed = True
-                            break
-                except Exception:
-                    pass
+        for fname, attr in ((COORDS_FILE, "_coords_file_mtime"),
+                            (CONFIG_FILE, "_config_file_mtime")):
+            if not os.path.exists(fname):
+                continue
+            try:
+                mtime = os.path.getmtime(fname)
+                if force or mtime > getattr(self, attr, 0.0) or not self.coords:
+                    with open(fname, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    if fname == COORDS_FILE:
+                        self.coords = data.get("camfrog_ui_layout", data)
+                    else:
+                        # config.json contributes only its optional layout block
+                        layout = data.get("camfrog_ui_layout")
+                        if isinstance(layout, dict):
+                            self.coords.update(layout)
+                    setattr(self, attr, mtime)
+                    changed = True
+            except Exception:
+                pass
         if changed:
             self.talk_button_rect = None
         return getattr(self, "coords", {}) or {}

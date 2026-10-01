@@ -155,6 +155,22 @@ def run_tests():
     check("ignore: self always ignored", kb.is_ignored_name("KaeKae_Toad"))
     core.save_config({"ignored_names": []}, announce=False)
 
+    # --- T2d: talk coordinates must survive a config.json edit ------------
+    # Regression: config.json is edited far more often than camfrog_coords.json,
+    # and the loader used to `break` on whichever file looked newer, so config
+    # replaced the coords and the controller fell back to hardcoded (1480,600).
+    import cef_probe as _cp
+    _tc = _cp.CamfrogCEFTalkController()
+    _c1 = _tc.get_talk_coordinates()
+    core.save_config({"engine": core.load_config().get("engine", "qwen")}, announce=False)
+    _tc._load_coordinates()
+    _c2 = _tc.get_talk_coordinates()
+    check("talk coords: stable across a config write", _c1 == _c2, f"{_c1} vs {_c2}")
+    check("talk coords: not the hardcoded fallback", _c2 != (1480, 600), f"got {_c2}")
+    check("talk coords: file is project-root anchored",
+          os.path.isabs(_cp.COORDS_FILE) and _cp.COORDS_FILE.endswith("camfrog_coords.json"),
+          _cp.COORDS_FILE)
+
     # --- T3: cross-process exclusive lock -------------------------------
     reset()
     try:
