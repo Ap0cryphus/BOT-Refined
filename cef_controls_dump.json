@@ -1,0 +1,277 @@
+[
+  {
+    "index": 1,
+    "type": "Button",
+    "rect": [
+      2836,
+      6,
+      18,
+      18
+    ],
+    "name": ""
+  },
+  {
+    "index": 2,
+    "type": "Button",
+    "rect": [
+      2856,
+      6,
+      18,
+      18
+    ],
+    "name": ""
+  },
+  {
+    "index": 3,
+    "type": "Pane",
+    "rect": [
+      2560,
+      30,
+      320,
+      240
+    ],
+    "name": "Your Video"
+  },
+  {
+    "index": 4,
+    "type": "Button",
+    "rect": [
+      1281,
+      37,
+      32,
+      34
+    ],
+    "name": ""
+  },
+  {
+    "index": 5,
+    "type": "Button",
+    "rect": [
+      1313,
+      37,
+      160,
+      34
+    ],
+    "name": ""
+  },
+  {
+    "index": 6,
+    "type": "Button",
+    "rect": [
+      1473,
+      37,
+      160,
+      34
+    ],
+    "name": ""
+  },
+  {
+    "index": 7,
+    "type": "Button",
+    "rect": [
+      2459,
+      35,
+      32,
+      32
+    ],
+    "name": ""
+  },
+  {
+    "index": 8,
+    "type": "Button",
+    "rect": [
+      2491,
+      35,
+      32,
+      32
+    ],
+    "name": ""
+  },
+  {
+    "index": 9,
+    "type": "Button",
+    "rect": [
+      2523,
+      35,
+      32,
+      32
+    ],
+    "name": ""
+  },
+  {
+    "index": 10,
+    "type": "Text",
+    "rect": [
+      1281,
+      71,
+      1278,
+      565
+    ],
+    "name": ""
+  },
+  {
+    "index": 11,
+    "type": "Text",
+    "rect": [
+      1281,
+      71,
+      1278,
+      472
+    ],
+    "name": ""
+  },
+  {
+    "index": 12,
+    "type": "Button",
+    "rect": [
+      1293,
+      103,
+      30,
+      30
+    ],
+    "name": ""
+  },
+  {
+    "index": 13,
+    "type": "Button",
+    "rect": [
+      1328,
+      104,
+      202,
+      16
+    ],
+    "name": ""
+  },
+  {
+    "index": 14,
+    "type": "Button",
+    "rect": [
+      1328,
+      120,
+      12,
+      12
+    ],
+    "name": ""
+  },
+  {
+    "index": 15,
+    "type": "Button",
+    "rect": [
+      1344,
+      120,
+      186,
+      12
+    ],
+    "name": ""
+  },
+  {
+    "index": 16,
+    "type": "Button",
+    "rect": [
+      1547,
+      103,
+      30,
+      30
+    ],
+    "name": ""
+  },
+  {
+    "index": 17,
+    "type": "Button",
+    "rect": [
+      1582,
+      104,
+      202,
+      16
+    ],
+    "name": ""
+  },
+  {
+    "index": 18,
+    "type": "Button",
+    "rect": [
+      1582,
+      120,
+      12,
+      12
+    ],
+    "name": ""
+  },
+  {
+    "index": 19,
+    "type": "Button",
+    "rect": [
+      1598,
+      120,
+      186,
+      12
+    ],
+    "name": ""
+  },
+  {
+    "index": 20,
+    "type": "Button",
+    "rect": [
+      2233,
+      81,
+      56,
+      14
+    ],
+    "name": ""
+  },
+  {
+    "index": 21,
+    "type": "Button",
+    "rect": [
+      1802,
+      103,
+      30,
+      30
+    ],
+    "name": ""
+  },
+  {
+    "index": 22,
+    "type": "Button",
+    "rect": [
+      1837,
+      104,
+      75,
+      16
+    ],
+    "name": ""
+  },
+  {
+    "index": 23,
+    "type": "Button",
+    "rect": [
+      1837,
+      120,
+      12,
+      12
+    ],
+    "name": ""
+  },
+  {
+    "index": 24,
+    "type": "Button",
+    "rect": [
+      1853,
+      120,
+      59,
+      12
+    ],
+    "name": ""
+  },
+  {
+    "index": 25,
+    "type": "Button",
+    "rect": [
+      1929,
+      103,
+      30,
+      30
+    ],
+    "name": ""
+  }
+]

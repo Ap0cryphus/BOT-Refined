@@ -1,0 +1,16 @@
+{
+  "active_speaker_ocr_region": {
+    "left": 1504,
+    "top": 557,
+    "width": 180,
+    "height": 28
+  },
+  "chat_input": {
+    "x": 1446,
+    "y": 603
+  },
+  "talk_button": {
+    "x": 1331,
+    "y": 565
+  }
+}

@@ -1,0 +1,52 @@
+======================================================================
+ KAEKAE BOT - MASTER TRIGGERS & COMMAND LIST
+======================================================================
+
+[Audio & Listening Controls]
+  !listen              - Turn microphone listening ON
+  !mute                - Turn microphone listening OFF
+  !transcribe          - Echo transcribed room speech to Camfrog chat
+  !transcribed         - Stop echoing transcribed speech to chat
+  !pending             - Check how many un-transcribed audio clips are queued
+  !catchup             - Transcribe all queued/pending speech clips now
+
+[Chat Temperament & Banter]
+  !chat                - Turn chatty mode ON (KaeKae mingles in chat)
+  !chat off            - Turn chatty mode OFF (Quiet in room)
+  !calm                - Return KaeKae to normal, chill temperament
+  !tone funny          - Set KaeKae tone to funny (Only allowed)
+  !tone happy          - Set KaeKae tone to happy (Only allowed)
+  !diss [username]     - Aggressively witty roast of target or random user
+
+[User Intelligence & Lookups]
+  who is <username>    - Detailed narrative biography from audio & text files
+  info on <username>   - Statistical summary (msg count, mic airtime, dates, tone)
+
+[Moderation Audit Queries]
+  who blocked [user]   - List who blocked target (ignores unblocks)
+  who unblocked [user] - List who unblocked target (ignores blocks)
+  who kicked [user]    - List who kicked target
+  who punished [user]  - List who punished target (ignores unpunished)
+  who unpunished [user]- List who unpunished target
+  who banned [user]    - List who banned target (ignores unbanned)
+  who unbanned [user]  - List who unbanned target
+
+[Speech Memory & Verbatim]
+  !verbatim <username> - Send 5 most recent mic transcripts for user
+  !verbatimall         - Send 5 most recent mic transcripts from everyone
+  !recall "phrase"     - Search mic speech archives with exact/AND matching
+  !idk <question>      - Ask anything (Web Search + Memory + Room context)
+  !mo                  - Page through next chunk of search/verbatim results
+
+[Voice Triggers (Spoken on Mic)]
+  'kae', 'kaekae', 'kaebot'
+  -> Random non-repeating replies:
+     "What's up, Doc" | "What you need, homie?" | "Why do I keep hearing my name being called?"
+
+[Authorized Creator Only]
+  !say "message"       - Have KaeKae speak/type message in her own tone
+======================================================================
+
+PATH
+
+C:\Users\newbe\AppData\Local\Programs\Python\Python311\python.exe

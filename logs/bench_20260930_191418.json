@@ -1,0 +1,25 @@
+{
+  "started_at": "2026-09-30T19:12:53",
+  "config_seen": {
+    "cef_chat_scan_interval_seconds": 0.25
+  },
+  "python": "C:\\Users\\newbe\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+  "brain": [
+    {
+      "model": "gemma4:26b",
+      "ok": true,
+      "cold_seconds": 40.34,
+      "load_seconds": 20.02,
+      "cold_reply": "It\u2019s cute, but honestly, it\u2019s giving major mid vibes, Papi. Like, where is the actual beat? \ud83d\ude44\ud83d\udc85",
+      "last_reply": "Honestly, Papi, if this is what you call a bop, your taste is literally tragic. Like, we seriously need to fix that ASAP! \ud83d\udc85\u2728",
+      "warm_seconds": [
+        25.29,
+        19.77
+      ],
+      "warm_median_seconds": 22.53,
+      "tokens_per_sec": 39.1,
+      "reply_chars": 124
+    }
+  ],
+  "finished_at": "2026-09-30T19:14:18"
+}

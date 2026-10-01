@@ -1,0 +1,50 @@
+{
+  "cef_chat_scan_interval_seconds": 0.25,
+
+  "engine": "qwen",
+  "reply_engine": "",
+  "qwen_model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+  "qwen_speaker": "vivian",
+  "edge_voice": "en-US-AvaNeural",
+  "elevenlabs_api_key": "",
+  "elevenlabs_persona": "valley",
+  "voice": "en-US-AvaNeural",
+  "voice_rate": "+12%",
+  "voice_pitch": "+16Hz",
+  "speak_timeout_s": 180,
+
+  "brain_model": "qwen3-coder:latest",
+  "brain_fallback": "llama3.2:latest",
+  "brain_timeout_s": 8,
+  "brain_keep_alive": "30m",
+
+  "bot_display_names": ["KaeKae_Toad", "KaeKaeBot-CamfrogAIAssistant", "KaeKae"],
+  "talk_mode": "auto",
+  "talk_stable_seconds": 1.0,
+  "talk_grab_timeout_s": 6.0,
+
+  "dup_reply_seconds": 3600,
+  "screen_dup_seconds": 120,
+  "known_sender_strict": true,
+
+  "audio_input_device": "CABLE Output (VB-Audio Virtual Cable)",
+  "audio_output_device": "CABLE Input (VB-Audio Virtual Cable)",
+
+  "benchmarks_2026_09_30": {
+    "note": "Measured on Ryzen 9 9950X3D / 47GB RAM / CPU-only (torch 2.14.1+cpu). Brain = Ollama /api/generate, same persona prompt as the bot.",
+    "brain": {
+      "llama3.2:latest":      {"warm_seconds": 0.23, "tokens_per_sec": 167.5, "load_seconds": 2.66, "verdict": "fast, in-character"},
+      "llama3:latest":        {"warm_seconds": 0.30, "tokens_per_sec": 107.9, "load_seconds": 4.52, "verdict": "fast, in-character"},
+      "deepseek-coder:6.7b":  {"warm_seconds": 0.57, "tokens_per_sec": 119.9, "load_seconds": 3.12, "verdict": "rejected - breaks persona"},
+      "qwen3-coder:latest":   {"warm_seconds": 1.53, "tokens_per_sec": 48.4,  "load_seconds": 17.17, "verdict": "CHOSEN - MoE, richest banter, live-viable"},
+      "gemma4:26b":           {"warm_seconds": 22.53, "tokens_per_sec": 39.1, "load_seconds": 20.02, "verdict": "rejected - too slow for live chat"}
+    },
+    "voice": {
+      "system":     {"synthesis_seconds": 0.33,  "audio_seconds": 5.45, "verdict": "instant fallback"},
+      "qwen/vivian":{"synthesis_seconds": 17.68, "audio_seconds": 6.16, "sample_rate": 24000, "realtime_factor": 2.87, "load_seconds": 4.58, "verdict": "CHOSEN default voice"},
+      "qwen/serena":{"synthesis_seconds": 18.79, "sample_rate": 24000, "verdict": "alternate speaker"},
+      "edge":       {"verdict": "unavailable - edge_tts not installed on this interpreter"},
+      "elevenlabs": {"verdict": "unavailable - no API key configured"}
+    }
+  }
+}
