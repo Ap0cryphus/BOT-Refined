@@ -1,5 +1,10 @@
 # FAULTS — KaeKae bot test ledger
 
+**If something has gone badly wrong, get back to a working build first:**
+`rollback.bat list` → `rollback.bat verify` → then level `1`, `2` or `3`.
+Copies of both backup folders also live outside the project at
+`C:\Users\newbe\AIBot_rollback\`.
+
 **How to use this file**
 
 1. Run one test from `TEST_RUNBOOK.md`.

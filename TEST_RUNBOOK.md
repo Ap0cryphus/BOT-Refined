@@ -107,8 +107,27 @@ Evidence: `logs/broadcast_enqueue_<date>.jsonl`, `terminal_heartbeats.json`.
 
 ## Rollback, three levels
 
-| Level | Action |
-|---|---|
-| One file broke | `git checkout -- <file>` |
-| Whole build suspect | copy from `_prefeval_backup\` |
-| Everything wrong | copy from `_presync_backup\` (originals) |
+Run from `c:\Users\newbe\AIBot`:
+
+| Level | Command | What you get | When to use |
+|---|---|---|---|
+| **1** | `rollback.bat 1 kaekae_bot.py` | That one file back to the last commit | One file got edited/corrupted |
+| **2** | `rollback.bat 2` | The full 11-file **pre-evaluation build** (the verified Phase 1-7 rework) | Live test went sideways; you want the frozen known-good build |
+| **3** | `rollback.bat 3` | The **complete original codebase** (git `bc1d29f`) | Everything is wrong; start over |
+
+- Check them without changing anything: **`rollback.bat verify`** (parses every
+  restore target in a temp folder).
+- See what each level does: `rollback.bat list`.
+- Add `--yes` to skip the confirmation on levels 2 and 3.
+- Level 3 moves the new tooling into `rolled_back_tooling\` instead of
+  deleting it, and never touches git history — commits `833e908` / `c027f64`
+  still hold the full rework.
+
+> **Do NOT restore from `_presync_backup\` for a full rollback.** It holds only
+> 6 files (no `cef_explorer.py`, `chat_worker.py`, `calibrate_camfrog.py`), so
+> you would end up with the new tools calling into an old `cef_probe.py` that
+> has no `acquire_talk()` — a guaranteed `AttributeError` at runtime. Use
+> `rollback.bat 3` (git) for the full restore.
+
+**Off-project backup copies** also exist at `C:\Users\newbe\AIBot_rollback\`,
+so deleting the project folder cannot destroy the escape hatches.
