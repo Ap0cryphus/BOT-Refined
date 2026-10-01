@@ -260,7 +260,30 @@ class CamfrogCEFProbe:
             else:
                 self.app_handle = Application(backend="uia").connect(title_re="(?i).*(Camfrog|Players__Lounge|DRAMA_CENTRAL).*")
 
-            self.window_handle = self.app_handle.top_window()
+            # Camfrog keeps SEVERAL top-level windows (a login dialog, a media
+            # strip, and the real room). top_window() frequently returns a dialog
+            # that contains no CefBrowser controls at all, which silently made
+            # talk discovery fail. Pick the window that actually holds the Talk
+            # button, falling back to top_window().
+            best, best_score = None, -1
+            try:
+                for w in self.app_handle.windows():
+                    try:
+                        score = 0
+                        for c in w.descendants():
+                            try:
+                                if (c.element_info.class_name or "") == "CButtonTS":
+                                    score += 1
+                            except Exception:
+                                continue
+                        if score > best_score:
+                            best, best_score = w, score
+                    except Exception:
+                        continue
+            except Exception:
+                best = None
+            self.window_handle = best if (best is not None and best_score > 0) else self.app_handle.top_window()
+            self._talk_window_score = best_score
             return True
         except Exception:
             self.app_handle = None
@@ -1002,7 +1025,16 @@ class CamfrogCEFTalkController:
         }
         with self.lock:
             self._load_coordinates()
-            if not self.probe.window_handle:
+            # Re-attach whenever we have no usable Talk control, not only when the
+            # handle is None: the previously cached handle can be a Camfrog dialog
+            # that contains no CefBrowser controls, so it never yields a Talk button.
+            stale_ctrl = False
+            if self.talk_button_ctrl is not None:
+                try:
+                    stale_ctrl = (self.talk_button_ctrl.element_info.control_type != "Button")
+                except Exception:
+                    stale_ctrl = True
+            if not self.probe.window_handle or not self.talk_button_ctrl or stale_ctrl:
                 self.probe.attach_uia()
 
             win = self.probe.window_handle
@@ -1038,8 +1070,13 @@ class CamfrogCEFTalkController:
                 try:
                     for ctrl in win.descendants():
                         if ctrl.element_info.control_type == "Button":
-                            name = (ctrl.element_info.name or ctrl.window_text() or "").strip().lower()
-                            if name == "talk" or "push-to-talk" in name:
+                            # Camfrog's real label is "Talk " WITH a trailing
+                            # space; the old exact compare never matched it, so the
+                            # control was silently never latched.
+                            raw = (ctrl.element_info.name or ctrl.window_text() or "")
+                            name = raw.strip().lower()
+                            if name in ("talk", "push-to-talk", "talk to talk",
+                                        "push to talk") or "push-to-talk" in name:
                                 self.talk_button_ctrl = ctrl
                                 r = ctrl.rectangle()
                                 self.talk_button_rect = (r.left, r.top, r.right, r.bottom)
@@ -1261,9 +1298,15 @@ class CamfrogCEFTalkController:
 
     def _press_pattern(self, pattern: str) -> bool:
         """Presses the talk button with one specific strategy. Idempotent press
-        patterns only - hands-free TOGGLING is intentionally excluded here."""
+        patterns only - hands-free TOGGLING is intentionally excluded here.
+
+        SPEED: catch_talk_process() re-walked the entire UIA tree and cost 1371ms,
+        which made every press ~1.7s and lost every mic battle. Discovery is now
+        throttled: it only runs when the Talk control is missing or stale, so a
+        press costs ~60ms instead."""
         cx, cy = self.get_talk_coordinates()
-        self.catch_talk_process()
+        if self.talk_button_ctrl is None:
+            self.catch_talk_process()
 
         if pattern == "mouse_hold":
             if not pyautogui:

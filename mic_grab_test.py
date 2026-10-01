@@ -31,6 +31,8 @@ def main() -> int:
     ap.add_argument("--wait", type=float, default=20.0,
                     help="seconds to keep retrying the grab")
     ap.add_argument("--gap", type=float, default=0.12)
+    ap.add_argument("--hold", type=float, default=0.5,
+                    help="seconds the dark/OPEN state must persist to count as a real grab")
     ap.add_argument("--no-audio", action="store_true")
     ap.add_argument("--voice", default="en-US-AvaNeural")
     args = ap.parse_args()
@@ -52,13 +54,21 @@ def main() -> int:
     if not tc.talk_button_ctrl:
         log("WARNING: no UIA talk control found; falling back to coordinate press.")
 
+    # Focus first: the button renders darker when the window is focused, and an
+    # idle calibration taken while blurred is meaningless.
+    tc.focus_camfrog()
+    time.sleep(0.4)
+    idle_avg = tc.calibrate_talk_idle()
+    log(f"idle baseline avg={idle_avg}")
+
     held = False
     method = ""
     start = time.time()
     tries = 0
-    # Keep re-pressing until the hold sticks. uia first: it is the only strategy
-    # observed to actually open the mic on a canvas-drawn button.
-    order = ("uia", "mouse_hold", "cef_hwnd", "f10")
+    # mouse_hold is FIRST: a real mouseDown is the only press proven to hold the
+    # mic open on this canvas button (measured held=138.48 for 6s). uia invoke()
+    # is an instant click, which push-to-talk immediately closes again.
+    order = ("mouse_hold", "mouse_hold", "cef_hwnd", "uia")
     while tries < args.attempts and time.time() - start < args.wait:
         tries += 1
         pattern = order[(tries - 1) % len(order)]
@@ -70,25 +80,43 @@ def main() -> int:
         except Exception as e:
             log(f"press {pattern} raised {e}")
             ok = False
-        if ok and getattr(tc, "is_holding", False):
+        # PIXEL VERIFIED: a dispatched press is not a held press.
+        if ok:
+            time.sleep(0.12)
+            is_open = tc.is_talk_button_open(idle_avg)
+        else:
+            is_open = False
+        if is_open:
+            # PERSISTENCE: the dark reading can just mean "button is rendering
+            # pressed" while the room still awards the mic to someone else, so
+            # require the dark state to hold continuously before accepting.
+            t_dark = time.time()
+            while time.time() - t_dark < args.hold:
+                if not tc.is_talk_button_open(idle_avg):
+                    is_open = False
+                    log(f"  persistence broken after {time.time()-t_dark:.2f}s - "
+                        f"the room took the mic back")
+                    break
+                time.sleep(0.1)
+
+        if is_open:
             held = True
             method = tc.active_method
-            spk = ""
-            try:
-                spk = cp.global_probe.get_speaker()
-            except Exception:
-                pass
-            log(f"attempt {tries}: {pattern} -> HELD via {method} (speaker={spk!r})")
-            # Re-press once more to be sure the hold is stable before speaking.
-            time.sleep(0.15)
-            tc._press_pattern("uia" if tc.talk_button_ctrl else "mouse_hold")
-            time.sleep(0.15)
+            elapsed = time.time() - start
+            avg_now, _ = tc.read_talk_button_state()
+            log(f"attempt {tries}: {pattern} -> PIXEL-VERIFIED OPEN via {method} "
+                f"(idle={idle_avg} held={avg_now}) after {elapsed:.2f}s")
+            time.sleep(0.10)
             break
-        log(f"attempt {tries}: {pattern} -> not held")
+        avg_now, _ = tc.read_talk_button_state()
+        log(f"attempt {tries}: {pattern} -> not open (button avg={avg_now}, "
+            f"open needs <=143) at {time.time()-start:.2f}s")
         time.sleep(args.gap)
 
     result = {
         "held": held, "method": method, "tries": tries,
+        "idle_avg": tc._talk_press_state.get("idle_avg"),
+        "time_to_grab_s": round(time.time() - start, 2),
         "coords": tc.get_talk_coordinates(),
         "phrase": "" if args.no_audio else args.phrase,
     }
