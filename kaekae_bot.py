@@ -238,7 +238,8 @@ if os.path.exists("config.json"):
 
 # Chat Limits & Timings
 MAX_MSG_LENGTH = 400  # Camfrog strictly enforces 400 chars per message
-CEF_CHAT_SCAN_INTERVAL = 0.25  # Fast 250ms direct CEF Chromium chat pulling (accelerated)
+CEF_CHAT_SCAN_INTERVAL = 0.25  # Extra sleep between passes; a real pass costs ~0.2s cached
+CEF_CTRL_CACHE_SECONDS = 2.0  # Rebuild the UIA control cache at least this often
 LOG_WINDOW_HOURS = 72
 MAX_PROFILE_ITEMS = 999
 MAX_USER_CONTEXT_CHARS = 10000
@@ -340,6 +341,10 @@ class BotState:
         self.diss_last_time: float = 0.0
         self.diss_interval_seconds: float = 60.0
         
+        # Cached CEF/UIA control handles (a full descendants() walk costs ~1.5s)
+        self.cef_ctrl_cache: List[Any] = []
+        self.cef_ctrl_cache_time: float = 0.0
+
         # Unified Deduplication, History Priming & Memory
         self.seen_message_signatures: Set[str] = set()
         self.history_primed: bool = False
@@ -4209,20 +4214,43 @@ def main():
                     except Exception:
                         pass
 
-                # 2. Extract DOM text nodes directly from CEF
+                # 2. Extract DOM text nodes directly from CEF.
+                # A full descendants() walk costs ~1.5s here (1,300+ nodes), so the
+                # control OBJECTS are cached and only their names re-read (~0.2s).
+                # Safety: new chat lines arrive as NEW nodes, so a stale cache would
+                # miss them - therefore the cache is refreshed on a short interval and
+                # immediately whenever the cheap read finds a node with no text (a
+                # strong hint the tree was rebuilt).
                 texts = []
                 try:
-                    for ctrl in curr_win.descendants():
+                    now_s = time.time()
+                    if (not state.cef_ctrl_cache
+                            or now_s - state.cef_ctrl_cache_time > CEF_CTRL_CACHE_SECONDS
+                            or len(state.cef_ctrl_cache) < 100):
+                        state.cef_ctrl_cache = [
+                            c for c in curr_win.descendants()
+                            if (c.element_info.control_type or "")
+                            in {"Text", "Hyperlink", "ListItem", "Edit", "Document", "Pane", "Custom"}
+                        ]
+                        state.cef_ctrl_cache_time = now_s
+
+                    empty_hits = 0
+                    for ctrl in state.cef_ctrl_cache:
                         try:
-                            c_type = ctrl.element_info.control_type
-                            if c_type in {"Text", "Hyperlink", "ListItem", "Edit", "Document", "Pane", "Custom"}:
-                                txt = (ctrl.element_info.name or ctrl.window_text() or "").strip()
-                                if txt:
-                                    texts.append(txt)
+                            txt = (ctrl.element_info.name or ctrl.window_text() or "").strip()
+                            if txt:
+                                texts.append(txt)
+                            else:
+                                empty_hits += 1
                         except Exception:
-                            pass
+                            empty_hits += 1
+                    # Many empty reads => the cached handles went stale. Force a rebuild
+                    # on the next pass so newly added chat nodes are picked up.
+                    if empty_hits > max(25, len(state.cef_ctrl_cache) // 4):
+                        state.cef_ctrl_cache_time = 0.0
                 except Exception:
-                    pass
+                    state.cef_ctrl_cache = []
+                    state.cef_ctrl_cache_time = 0.0
 
                 # 2b. Diagnostics: record the exact node list being sampled so a
                 # missed command can be proven as a CAPTURE miss vs a drop.
