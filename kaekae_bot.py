@@ -2328,72 +2328,261 @@ def handle_mo_command(requester: str) -> bool:
 # BLOCK 10: OCR VISION ENGINE & MODERATION ACTION DETECTION
 # ==============================================================================
 
-def detect_kick_block(username: str, message: str) -> Optional[Dict[str, str]]:
+# ------------------------------------------------------------------------------
+# Moderation-event parsing: rejects prose, understands Camfrog system notices
+# ------------------------------------------------------------------------------
+# Ordinary English that must never be read as a username. The old parser pulled
+# the last word before the action verb, so a rules message like "Please do not
+# block or kick anyone" logged an event with actor="are", target="or".
+MOD_STOPWORDS = {
+    "a", "an", "the", "and", "or", "but", "is", "are", "was", "were", "be", "been",
+    "being", "am", "do", "does", "did", "doing", "done", "to", "of", "in", "on",
+    "at", "by", "for", "from", "with", "without", "into", "onto", "about",
+    "please", "dont", "never", "always", "nobody", "someone", "noone", "no", "not",
+    "if", "you", "your", "yours", "we", "us", "our", "they", "them", "their",
+    "he", "she", "him", "her", "his", "hers", "it", "its", "this", "that",
+    "these", "those", "there", "here", "get", "got", "gets", "getting",
+    "like", "just", "very", "really", "much", "many", "more", "most", "some",
+    "any", "all", "can", "cannot", "will", "would", "should", "could", "may",
+    "have", "has", "had", "having", "make", "made", "take", "taken", "use",
+    "used", "using", "allowed", "allow", "allows", "okay", "ok", "yes", "no",
+    "again", "still", "also", "then", "than", "when", "where", "why", "how",
+    "who", "whom", "which", "while", "after", "before", "under", "over",
+    "rules", "rule", "room", "rooms", "chat", "users", "user", "member",
+    "members", "anyone", "everyone", "someone", "them", "welcome", "thanks",
+    "thank", "please", "avoid", "note", "warning", "important", "remember",
+    "again", "hi", "hello", "hey",
+}
+
+# Phrases that indicate the text is DISCUSSION about moderation, not an event.
+MOD_PROSE_MARKERS = (
+    "do not", "dont", "don't", "should not", "shouldnt", "never", "avoid",
+    "please do", "please dont", "please don't", "no one is allowed",
+    "anyone who", "if you", "you will", "you'll", "be banned", "will be",
+    "are not allowed", "is not allowed", "not allowed", "is allowed",
+    "rules", "rule", "guidelines", "guideline", "please note", "keep in mind",
+    "make sure", "remember", "warning", "moderators", "admin only",
+    "contact an admin", "contact an moderator", "ask an admin",
+)
+
+# Camfrog's real system notice has no "by": "Noone was banned JellyBish"
+MOD_ANON_ACTION = r'(?P<action>banned|blocked|kicked|punished|unbanned|unblocked|unpunished)'
+MOD_ANON_RE = re.compile(
+    r'^(?:no\s?one|nobody|someone|some\s?body|user)\s+(?:was|were|has\s+been|have\s+been|got)\s+'
+    + MOD_ANON_ACTION +
+    r'\s+(?:from\s+)?(?:the\s+)?(?:room\s+)?([a-zA-Z0-9_$\-\.]{2,32})[\s\.\!\?]*$',
+    re.IGNORECASE,
+)
+
+# "JellyBish was banned" / "xX_MAYHEM_Xx was blocked by Samuel_____"
+MOD_PASSIVE_RE = re.compile(
+    r'^([a-zA-Z0-9_$\-\.]{2,32})\s+(?:was|were|has\s+been|have\s+been|got)\s+'
+    + MOD_ANON_ACTION +
+    r'(?:\s+by\s+([a-zA-Z0-9_$\-\.]{2,32}))?[\s\.\!\?]*$',
+    re.IGNORECASE,
+)
+
+# Active: "Samuel_____ banned xX_MAYHEM_Xx"
+MOD_ACTIVE_RE = re.compile(
+    r'^([a-zA-Z0-9_$\-\.]{2,32})\s+' + MOD_ANON_ACTION +
+    r'\s+(?:the\s+)?(?:from\s+)?([a-zA-Z0-9_$\-\.]{2,32})'
+    r'(?:\s+(?:microphone|mic|video|cam|audio|chat|room))?[\s\.\!\?]*$',
+    re.IGNORECASE,
+)
+
+# Trailing "Noone"/"Someone" as the real actor in Camfrog notices.
+MOD_NON_USER_ACTORS = {"noone", "someone", "nobody", "user", "camfrog", "system",
+                       "moderator", "operator", "admin", "room", "the", "a", "an"}
+
+
+def _looks_like_prose(msg: str) -> bool:
+    """True when the text DISCUSSES moderation instead of reporting an event."""
+    low = " " + re.sub(r'\s+', ' ', msg.lower().strip()) + " "
+    for marker in MOD_PROSE_MARKERS:
+        if marker in low:
+            return True
+    return False
+
+
+def _clean_name(raw: str) -> str:
+    """Trim punctuation but KEEP underscores and dashes (Samuel_____ must survive)."""
+    return re.sub(r'[^a-zA-Z0-9_$\-\.]', '', (raw or "")).strip()
+
+
+def _is_plausible_name(name: str) -> bool:
+    if not name or len(name) < 2 or len(name) > 32:
+        return False
+    low = name.lower()
+    if low in MOD_STOPWORDS or low in MOD_NON_USER_ACTORS:
+        return False
+    if not re.search(r'[a-zA-Z]', name):
+        return False
+    return True
+
+
+# ------------------------------------------------------------------------------
+# Runtime-editable ignore list (config.json -> "ignored_names")
+# Lets a creator silence a noisy room bot without editing code or restarting.
+# ------------------------------------------------------------------------------
+_mod_reject_counts: Dict[str, int] = {}
+
+
+def _log_mod_reject(raw: str, reason: str) -> None:
+    """Rate-limited diagnostics for rejected moderation candidates."""
+    _mod_reject_counts[reason] = _mod_reject_counts.get(reason, 0) + 1
+    n = _mod_reject_counts[reason]
+    if n not in (1, 5, 25, 100) and n % 100 != 0:
+        return
+    if _core is not None:
+        try:
+            _core.log_event("mod_diag", decision="rejected", reason=reason,
+                            seen=n, raw=raw[:140])
+        except Exception:
+            pass
+
+
+def _log_mod_ignore(raw: str, ev: Dict[str, str]) -> None:
+    if _core is not None:
+        try:
+            _core.log_event("mod_diag", decision="ignored_name",
+                            actor=ev.get("actor", ""), target=ev.get("target", ""),
+                            action=ev.get("action", ""), raw=raw[:140])
+        except Exception:
+            pass
+
+
+def get_ignored_names() -> Set[str]:
+    """Lowercased ignored names: config.json (hot-reloaded) + built-in defaults."""
+    names = set(IGNORED_USERS)
+    if _core is not None:
+        try:
+            raw = _core.load_config().get("ignored_names", [])
+            if isinstance(raw, (list, tuple)):
+                for n in raw:
+                    cleaned = str(n).strip().lower()
+                    if cleaned:
+                        names.add(cleaned)
+        except Exception:
+            pass
+    return names
+
+
+def is_ignored_name(name: str) -> bool:
+    """True when a name is on the ignore list (moderation, chat and speaker paths)."""
+    low = (name or "").strip().lower()
+    if not low:
+        return False
+    if low in BOT_ALT_USERNAMES or low == BOT_USERNAME.lower() or "kaekae" in low:
+        return True
+    return low in get_ignored_names()
+
+
+def add_ignored_name(name: str) -> bool:
+    """Adds a name to config.json ignored_names (persisted, hot-reloaded)."""
+    cleaned = (name or "").strip()
+    if not cleaned or _core is None:
+        return False
+    try:
+        cfg = _core.load_config()
+        current = list(cfg.get("ignored_names", []) or [])
+        if any(str(x).strip().lower() == cleaned.lower() for x in current):
+            return False
+        current.append(cleaned)
+        return bool(_core.save_config({"ignored_names": current}, announce=False))
+    except Exception as e:
+        print(f"[IGNORE] Add failed: {e}")
+        return False
+
+
+def remove_ignored_name(name: str) -> bool:
+    """Removes a name from config.json ignored_names."""
+    cleaned = (name or "").strip()
+    if not cleaned or _core is None:
+        return False
+    try:
+        cfg = _core.load_config()
+        current = list(cfg.get("ignored_names", []) or [])
+        keep = [x for x in current if str(x).strip().lower() != cleaned.lower()]
+        if len(keep) == len(current):
+            return False
+        return bool(_core.save_config({"ignored_names": keep}, announce=False))
+    except Exception as e:
+        print(f"[IGNORE] Remove failed: {e}")
+        return False
+
+
+def detect_kick_block(username: str, message: str,
+                      return_reason: bool = False) -> Optional[Dict[str, str]]:
     """
-    Identifies kicks, blocks, unblocks, punishes, unpunishes, bans, and unbans.
-    Strictly separates 'unblock' from 'block', 'unpunish' from 'punish',
-    and 'unban' from 'ban' using negative lookbehinds so they never cross-match.
-    Accurately parses both active ('Admin blocked User microphone') and
-    passive ('User was blocked by Admin') formats.
+    Identifies real Camfrog moderation notices only.
+
+    Understands three system formats:
+      1. "Noone was banned JellyBish"          (anonymous actor - Camfrog's form)
+      2. "xX_MAYHEM_Xx was blocked by Samuel_____" (passive, actor present)
+      3. "Samuel_____ banned xX_MAYHEM_Xx"     (active)
+
+    Anything that merely MENTIONS kick/block/ban in prose is rejected, which
+    stops rules messages and sliding-window node joins from fabricating events.
+
+    With return_reason=True the dict carries an extra 'reason' key and is returned
+    even when rejected, so diagnostics can log why a candidate was dropped.
     """
-    msg = message.strip()
-    if not msg or len(msg) > 150:
+    def _reject(reason: str) -> Optional[Dict[str, str]]:
+        if return_reason:
+            return {"action": "", "actor": "", "target": "", "reason": reason}
         return None
 
-    # Strip leading timestamps or brackets: e.g. "[11:19 AM] ", "(11:19) ", "11:19:30 "
-    msg = re.sub(r'^(?:\[\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?\]|\(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?\)|\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?)\s*', '', msg, flags=re.IGNORECASE).strip()
+    msg = (message or "").strip()
+    if not msg or len(msg) > 150:
+        return _reject("empty_or_too_long")
 
-    action_patterns = [
-        ("unblocked", r'\bunblocked\b'),
-        ("blocked", r'\b(?<!un)blocked\b'),
-        ("unpunished", r'\bunpunished\b'),
-        ("punished", r'\b(?<!un)punished\b'),
-        ("unbanned", r'\bunbanned\b'),
-        ("banned", r'\b(?<!un)banned\b'),
-        ("kicked", r'\bkicked\b'),
-    ]
+    # Drop trailing "(from '...')" style provenance and leading timestamps.
+    msg = re.sub(r"\s*\(from '[^']*'\)\s*$", "", msg)
+    msg = re.sub(r'^(?:[\[\(]?\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?[\]\)]?)\s*', '', msg,
+                 flags=re.IGNORECASE).strip()
+    # Drop a leading "Sender <time>" header, keeping only what follows it.
+    msg = re.sub(r'^[a-zA-Z0-9_$\-\.]{2,32}\s+\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?\s+', '',
+                 msg).strip()
+    if not msg:
+        return _reject("empty_after_cleanup")
 
-    for action_name, pat in action_patterns:
-        m = re.search(pat, msg, flags=re.IGNORECASE)
-        if m:
-            start, end = m.span()
-            before = msg[:start].strip()
-            after = msg[end:].strip()
+    if _looks_like_prose(msg):
+        return _reject("prose_notice")
 
-            # Passive format: "User was/got blocked by Admin"
-            passive_m = re.search(r'\b(?:by)\s+([a-zA-Z0-9_\-\$]{2,30})\b', after, re.IGNORECASE)
-            if passive_m:
-                actor = passive_m.group(1).strip()
-                targ_tokens = [w for w in before.split() if w.lower() not in {"was", "got", "has", "been", "is"}]
-                target = targ_tokens[-1] if targ_tokens else ""
-            else:
-                # Active format: "B3_D33 blocked KaeKae_Toad microphone"
-                actor_tokens = before.split()
-                actor = actor_tokens[-1] if actor_tokens else username
+    # --- 1. Anonymous Camfrog system notice ----------------------------
+    m = MOD_ANON_RE.match(msg)
+    if m:
+        target = _clean_name(m.group(2))
+        if not _is_plausible_name(target):
+            return _reject("anon_bad_target")
+        return {"action": m.group("action").lower(), "actor": "Noone", "target": target}
 
-                # Skip non-user keywords that might follow action
-                raw_after_tokens = [re.sub(r'[^a-zA-Z0-9_\-\$]', '', w) for w in after.split()]
-                target_tokens = [w for w in raw_after_tokens if w and w.lower() not in {"the", "a", "an", "user", "member", "from", "for"}]
-                target = target_tokens[0] if target_tokens else ""
+    # --- 2. Passive: "Target was blocked by Actor" ---------------------
+    m = MOD_PASSIVE_RE.match(msg)
+    if m:
+        target = _clean_name(m.group(1))
+        actor = _clean_name(m.group(3)) if m.group(3) else ""
+        if not _is_plausible_name(target):
+            return _reject("passive_bad_target")
+        if actor and not _is_plausible_name(actor):
+            return _reject("passive_bad_actor")
+        if not actor:
+            return _reject("passive_no_actor")
+        return {"action": m.group("action").lower(), "actor": actor, "target": target}
 
-            target = re.sub(r'[^a-zA-Z0-9_\-\$]', '', target)
-            actor = re.sub(r'[^a-zA-Z0-9_\-\$]', '', actor)
+    # --- 3. Active: "Actor banned Target" ------------------------------
+    m = MOD_ACTIVE_RE.match(msg)
+    if m:
+        actor = _clean_name(m.group(1))
+        target = _clean_name(m.group(3))
+        if not _is_plausible_name(actor):
+            return _reject("active_bad_actor")
+        if not _is_plausible_name(target):
+            return _reject("active_bad_target")
+        return {"action": m.group("action").lower(), "actor": actor, "target": target}
 
-            # Ignore noise where target was parsed as a hardware/audio word
-            if target.lower() in {"microphone", "mic", "video", "cam", "audio", "chat", "room"}:
-                sub_targets = [w for w in raw_after_tokens if w and w.lower() not in {"microphone", "mic", "video", "cam", "audio", "chat", "room", "the", "for", "from", "of"}]
-                if sub_targets:
-                    target = sub_targets[0]
-                else:
-                    continue
+    return _reject("no_pattern_match")
 
-            if len(target) >= 2 and len(actor) >= 2:
-                return {
-                    "action": action_name,
-                    "actor": actor,
-                    "target": target
-                }
-    return None
 
 def extract_chat_messages(lines: List[str]) -> List[Tuple[str, str, str]]:
     """
@@ -3375,6 +3564,65 @@ Keep under 250 characters!
         send_chat_message(f"{format_bot_timestamp()} Chatty mode ON! I will be mingling in the room.", override_mute=True)
         return
 
+    # 12z. Ignore-list controls (Authorized Only) - hot-reloaded, no restart needed
+    m_ign_add = re.match(r'^!ignore\s+([a-zA-Z0-9_$\-\.\s]{2,32})$', raw_msg, re.IGNORECASE)
+    if m_ign_add:
+        if not is_authorized_user(clean_user):
+            send_chat_message(f"@{clean_user}, !ignore is reserved for authorized creators.", override_mute=True)
+            return
+        who = m_ign_add.group(1).strip()
+        if add_ignored_name(who):
+            send_chat_message(f"Ignoring \"{who}\" from now on. !ignorelist to review.", override_mute=True)
+        else:
+            send_chat_message(f"@{clean_user}, could not ignore \"{who}\" (already ignored or save failed).",
+                              override_mute=True)
+        return
+
+    m_ign_del = re.match(r'^!unignore\s+([a-zA-Z0-9_$\-\.\s]{2,32})$', raw_msg, re.IGNORECASE)
+    if m_ign_del:
+        if not is_authorized_user(clean_user):
+            send_chat_message(f"@{clean_user}, !unignore is reserved for authorized creators.", override_mute=True)
+            return
+        who = m_ign_del.group(1).strip()
+        if remove_ignored_name(who):
+            send_chat_message(f"No longer ignoring \"{who}\".", override_mute=True)
+        else:
+            send_chat_message(f"@{clean_user}, \"{who}\" was not on the ignore list.", override_mute=True)
+        return
+
+    if re.match(r'^!ignorelist$', raw_msg, re.IGNORECASE):
+        configured = []
+        if _core is not None:
+            try:
+                configured = [str(n) for n in (_core.load_config().get("ignored_names", []) or [])]
+            except Exception:
+                configured = []
+        listed = ", ".join(configured) if configured else "(none configured)"
+        send_chat_message(f"Ignored names: {listed}", override_mute=True)
+        print(f"[IGNORE LIST] configured={configured}")
+        return
+
+    m_moddiag = re.match(r'^!moddiag(?:\s+(\d{1,3}))?$', raw_msg, re.IGNORECASE)
+    if m_moddiag:
+        want = int(m_moddiag.group(1) or 5)
+        summary = ", ".join(f"{r}={c}" for r, c in sorted(_mod_reject_counts.items(), key=lambda kv: -kv[1])[:8])
+        send_chat_message(
+            f"Mod scan rejected {sum(_mod_reject_counts.values())} candidates. Top: {summary or 'none yet'}",
+            override_mute=True,
+        )
+        print(f"[MOD DIAG] counts={_mod_reject_counts}")
+        try:
+            log_dir = "logs"
+            diag_files = sorted(f for f in os.listdir(log_dir) if f.startswith("mod_diag_"))
+            if diag_files:
+                with open(os.path.join(log_dir, diag_files[-1]), "r", encoding="utf-8") as fh:
+                    rows = [l for l in fh.read().splitlines() if l.strip()][-want:]
+                for r in rows:
+                    print(f"[MOD DIAG] {r}")
+        except Exception as e:
+            print(f"[MOD DIAG] log read warning: {e}")
+        return
+
     # 13. Say Command: !say "text" (Authorized Only - broadcast is queued for Terminal 2)
     m_say = re.match(r'^!say\s+"?([^"]+)"?$', raw_msg, re.IGNORECASE)
     if m_say:
@@ -3885,22 +4133,47 @@ def main():
                                     cef_mod_candidates.append(combined)
 
                 for cand in cef_mod_candidates:
-                    ev = detect_kick_block("", cand)
-                    if ev and ev.get("actor", "").lower() not in BOT_ALT_USERNAMES:
-                        sig = f"{state.current_focused_room}|{ev['actor'].lower()}|{ev['action']}|{ev['target'].lower()}"
-                        with state.lock:
-                            if sig not in state.mod_recent_events_cache:
-                                state.mod_recent_events_cache[sig] = time.time()
-                                ev["time"] = format_bot_timestamp()
-                                ev["room"] = state.current_focused_room
-                                state.kicks.append(ev)
-                                state.moderation_audit.append(ev)
-                                actor_key = ev["actor"].lower()
-                                if actor_key in state.users:
-                                    state.users[actor_key].setdefault("moderation_actions", []).append(ev)
-                                print(f"[CEF MOD LOGGED] {ev['actor']} {ev['action']} {ev['target']} (from '{cand}')")
-                                save_kicks()
-                                save_users()
+                    ev = detect_kick_block("", cand, return_reason=True)
+                    if not ev:
+                        continue
+                    reason = ev.get("reason", "")
+                    if reason:
+                        # Diagnostics: record WHY a candidate was dropped so a false
+                        # event is explainable from disk instead of guesswork.
+                        _log_mod_reject(cand, reason)
+                        continue
+                    if is_ignored_name(ev.get("actor", "")) or is_ignored_name(ev.get("target", "")):
+                        print(f"[CEF MOD IGNORED] {ev['actor']} {ev['action']} {ev['target']} (name on ignore list)")
+                        _log_mod_ignore(cand, ev)
+                        continue
+                    sig = f"{state.current_focused_room}|{ev['actor'].lower()}|{ev['action']}|{ev['target'].lower()}"
+                    with state.lock:
+                        now_mod = time.time()
+                        for _k in [k for k, ts in state.mod_recent_events_cache.items()
+                                   if now_mod - ts > 300]:
+                            del state.mod_recent_events_cache[_k]
+                        if sig in state.mod_recent_events_cache:
+                            _log_mod_reject(cand, "duplicate_signature")
+                            continue
+                        state.mod_recent_events_cache[sig] = time.time()
+                        ev.pop("reason", None)
+                        ev["time"] = format_bot_timestamp()
+                        ev["room"] = state.current_focused_room
+                        state.kicks.append(ev)
+                        state.moderation_audit.append(ev)
+                        actor_key = ev["actor"].lower()
+                        if actor_key in state.users:
+                            state.users[actor_key].setdefault("moderation_actions", []).append(ev)
+                        print(f"[CEF MOD LOGGED] {ev['actor']} {ev['action']} {ev['target']} (from '{cand}')")
+                        if _core is not None:
+                            try:
+                                _core.log_event("mod_accepted", actor=ev["actor"], action=ev["action"],
+                                                target=ev["target"], room=state.current_focused_room,
+                                                raw=cand[:140])
+                            except Exception:
+                                pass
+                        save_kicks()
+                        save_users()
 
                 # (OCR complementary scan removed: CEF/UIA is the only source.)
 

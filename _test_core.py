@@ -114,6 +114,47 @@ def run_tests():
     check("claim: signature ignores punctuation/case/spacing", s1 == s2, f"{s1!r} vs {s2!r}")
     check("claim: different sender is distinct",
           s1 != core.make_chat_signature("R", "someone_else", "hello there"))
+    # --- T2b: moderation parser rejects prose, understands real notices ---
+    import kaekae_bot as kb
+    good = [
+        ("Noone was banned JellyBish",            ("banned", "Noone", "JellyBish")),
+        ("Noone was kicked xX_MAYHEM_Xx",         ("kicked", "Noone", "xX_MAYHEM_Xx")),
+        ("xX_MAYHEM_Xx was blocked by Samuel_____", ("blocked", "Samuel_____", "xX_MAYHEM_Xx")),
+        ("Samuel_____ banned xX_MAYHEM_Xx",       ("banned", "Samuel_____", "xX_MAYHEM_Xx")),
+        ("B3_D33 blocked KaeKae_Toad microphone", ("blocked", "B3_D33", "KaeKae_Toad")),
+    ]
+    for raw, exp in good:
+        r = kb.detect_kick_block("", raw)
+        got = (r["action"], r["actor"], r["target"]) if r else None
+        check(f"mod: parses {raw[:38]!r}", got == exp, f"got={got}")
+
+    bad = [
+        "Please do not block or kick anyone",
+        "Rules: blocking and kicking are not allowed",
+        "are or", "never him", "got like", "USERS This",
+        "you will be banned if you keep spamming",
+    ]
+    for raw in bad:
+        r = kb.detect_kick_block("", raw)
+        check(f"mod: rejects {raw[:38]!r}", r is None, f"got={r}")
+
+    # Underscore/dollar names must survive intact (Samuel_____ was truncated before).
+    r = kb.detect_kick_block("", "Noone was kicked $htickie_")
+    check("mod: keeps $_ in names", bool(r) and r["target"] == "$htickie_",
+          f"got={r}")
+
+    # --- T2c: runtime ignore list (config.json, hot-reloaded) ------------
+    core.save_config({"ignored_names": []}, announce=False)
+    check("ignore: builtin room bot is ignored", kb.is_ignored_name("Players_Lounge1"))
+    check("ignore: real user not ignored", not kb.is_ignored_name("xX_MAYHEM_Xx"))
+    check("ignore: add persists", kb.add_ignored_name("NoisyBot99"))
+    check("ignore: added name is ignored", kb.is_ignored_name("noisybot99"))
+    check("ignore: duplicate add refused", kb.add_ignored_name("NoisyBot99") is False)
+    check("ignore: remove persists", kb.remove_ignored_name("NoisyBot99"))
+    check("ignore: removed name is live again", not kb.is_ignored_name("NoisyBot99"))
+    check("ignore: self always ignored", kb.is_ignored_name("KaeKae_Toad"))
+    core.save_config({"ignored_names": []}, announce=False)
+
     # --- T3: cross-process exclusive lock -------------------------------
     reset()
     try:

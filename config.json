@@ -89,5 +89,6 @@
         "verdict": "unavailable - no API key configured"
       }
     }
-  }
+  },
+  "ignored_names": []
 }
