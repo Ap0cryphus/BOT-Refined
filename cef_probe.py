@@ -18,6 +18,7 @@ import os
 import sys
 import time
 import json
+import random
 import re
 import hashlib
 import threading
@@ -1785,9 +1786,15 @@ class CamfrogCEFTalkController:
     def mic_state(self):
         """Returns (state, name, flow_red). States:
             idle | queued_ours | ours_active | queued_other | other_active
-        """
-        name = self.read_speaker_name()
+
+        Flow is sampled FIRST because it costs ~29ms while the name bubble OCR
+        costs ~170ms, and Camfrog only keeps our name in the bubble for ~1/3s
+        after a win - so the cheap test gates the expensive one. When nobody is
+        transmitting there is no point paying for OCR at all."""
         red = self.read_audio_flow()
+        if red is None or red >= self._flow_red_threshold:
+            return "idle", "", red
+        name = self.read_speaker_name()
         flow = (red is not None and red < self._flow_red_threshold)
         if not name:
             return "idle", "", red
@@ -1817,10 +1824,37 @@ class CamfrogCEFTalkController:
         except Exception:
             pass
 
-    def fast_press(self, hold: float = 0.0) -> bool:
-        """One press/release cycle via raw Win32. ~0.6ms. Returns True if sent."""
+    # Rate limiting. At the raw speed (~137 presses/sec) Camfrog treats the
+    # talk button as flood abuse and DROPS THE ROOM, so a press is rate limited
+    # and given a real hold time - the same shape as a human press, just quicker.
+    press_hold_s: float = 0.06          # mouse-down duration per press
+    press_interval_s: float = 0.11      # minimum gap between presses (~9/sec)
+    press_jitter: float = 0.45          # +/-45% randomisation of hold and gap
+    _last_press_at: float = 0.0
+
+    def fast_press(self, hold: float = None) -> bool:
+        """One rate-limited press/release cycle via raw Win32.
+
+        Defaults to a 60ms hold with a 110ms floor between presses (~9 presses
+        per second). That is still ~3x faster than a fast human click, but it
+        does not trip Camfrog's flood protection the way raw speed does."""
         if not windll:
             return False
+        hold = self.press_hold_s if hold is None else hold
+        gap = time.time() - self._last_press_at
+        if gap < self.press_interval_s:
+            time.sleep(self.press_interval_s - gap)
+        # JITTER: evenly spaced clicking lets two users' streams both get
+        # through, and the machine-like rhythm is what Camfrog flags as abuse
+        # (it dropped the room at raw speed). Randomising the hold and the gap
+        # breaks the pattern while keeping the same average cadence.
+        if self.press_jitter > 0:
+            hold *= random.uniform(1.0 - self.press_jitter,
+                                   1.0 + self.press_jitter)
+            gap_wanted = self.press_interval_s * random.uniform(
+                1.0 - self.press_jitter, 1.0 + self.press_jitter)
+            if gap < gap_wanted:
+                time.sleep(gap_wanted - gap)
         cx, cy = self.get_talk_coordinates()
         if not self._win_cursor_moved or self._win_last_xy != (cx, cy):
             self._win32_cursor_to(cx, cy)
@@ -1834,8 +1868,16 @@ class CamfrogCEFTalkController:
             windll.user32.mouse_event(0x0004, 0, 0, 0, 0)   # LEFTUP
         except Exception:
             return False
+        self._last_press_at = time.time()
         self.active_method = "win32_fast"
         return True
+
+    def set_press_rate(self, hold_ms: float = 60.0, interval_ms: float = 110.0,
+                       jitter: float = 0.45) -> None:
+        """Tunes the press cadence. Defaults are flood-safe and non-rhythmic."""
+        self.press_hold_s = max(0.01, hold_ms / 1000.0)
+        self.press_interval_s = max(0.0, interval_ms / 1000.0)
+        self.press_jitter = max(0.0, min(0.9, jitter))
 
     def fast_press_hold(self) -> bool:
         """Press and LEAVE held (for winning, then speak, then release)."""

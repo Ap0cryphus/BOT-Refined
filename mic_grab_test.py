@@ -34,6 +34,12 @@ def main() -> int:
     ap.add_argument("--hold", type=float, default=0.5,
                     help="seconds the dark/OPEN state must persist to count as a real grab")
     ap.add_argument("--fast", action="store_true", help="continuous re-press battle mode")
+    ap.add_argument("--hold-ms", type=float, default=60.0,
+                    help="mouse-down duration per press (default 60)")
+    ap.add_argument("--jitter", type=float, default=0.45,
+                    help="randomise hold/gap by +/-this fraction to avoid a rhythmic pattern")
+    ap.add_argument("--gap-ms", type=float, default=110.0,
+                    help="minimum gap between presses (default 110 = ~9/sec)")
     ap.add_argument("--no-audio", action="store_true")
     ap.add_argument("--voice", default="en-US-AvaNeural")
     args = ap.parse_args()
@@ -70,7 +76,7 @@ def main() -> int:
     # mic open on this canvas button (measured held=138.48 for 6s). uia invoke()
     # is an instant click, which push-to-talk immediately closes again.
     order = ("mouse_hold", "mouse_hold", "cef_hwnd", "uia")
-    while tries < args.attempts and time.time() - start < args.wait:
+    while (not args.fast) and tries < args.attempts and time.time() - start < args.wait:
         tries += 1
         pattern = order[(tries - 1) % len(order)]
         try:
@@ -127,6 +133,10 @@ def main() -> int:
     # audio-flow indicator. OCR only runs once flow is actually active, so the
     # expensive identity check is paid on the win path, not every iteration.
     if args.fast:
+        tc.set_press_rate(args.hold_ms, args.gap_ms, args.jitter)
+        log("press rate: hold=%.0fms gap=%.0fms (max ~%.1f presses/sec)"
+            % (args.hold_ms, args.gap_ms,
+               1000.0 / max(1.0, args.hold_ms + args.gap_ms)))
         tc.focus_camfrog()
         time.sleep(0.15)
         log("FAST MODE: re-pressing continuously, checking flow every poll")
@@ -135,10 +145,33 @@ def main() -> int:
         win_at = None
         t0 = time.time()
         while time.time() - t0 < args.wait and flow_presses < args.attempts * 40:
-            tc.fast_press(0.0)
+            # Stop fighting when there is nothing to fight for. If nobody is
+            # transmitting, rapid re-pressing is pure noise and only invites
+            # flood protection - take the free mic with a single press instead.
+            if polls % 2 == 0:
+                st, nm, _r = tc.mic_state()
+                if st in ("idle", "queued_ours"):
+                    # Press AND HOLD. A quick tap (down+up) never actually
+                    # takes a push-to-talk mic, so the name bubble stayed empty
+                    # and this loop livelocked. Holding is what wins the mic.
+                    log("  mic is FREE (%s) - pressing and HOLDING" % st)
+                    tc.fast_press_hold()
+                    flow_presses += 1
+                    time.sleep(0.10)
+                    owned, _r2, nm2 = tc.confirm_we_own_the_mic()
+                    log("  after hold: speaker=%r owned=%s" % (nm2, owned))
+                    if owned:
+                        win_at = time.time() - t0
+                        method = "win32_fast"
+                        held = True
+                        break
+                    tc.release_mic()
+                    time.sleep(0.05)
+                    continue
+            tc.fast_press()
             flow_presses += 1
             polls += 1
-            if polls % 3:          # ~21ms of pressing between checks
+            if polls % 3:
                 continue
             red = tc.read_audio_flow()
             if red is None or red >= 110:
