@@ -69,6 +69,66 @@ print("  Chat writes          : OUTBOX mode (Terminal 1 owns the chat box)")
 print("=" * 76 + "\n")
 
 _stop = threading.Event()
+_presynth_busy = threading.Event()
+
+
+def presynth_loop():
+    """Renders queued broadcasts to WAV AHEAD of time, off the microphone.
+
+    The point is that when the room finally falls quiet we can grab and speak
+    immediately. Synthesis takes 2-5s (much longer on the first Qwen load) and
+    doing that while already holding the mic means holding it in silence.
+
+    This walks the queue and renders the item AFTER the head, leaving the head
+    alone: the consumer is about to pop that one, and re-writing a task that is
+    being popped concurrently is how fields go missing."""
+    print("[AUDIO WORKER] Pre-synthesis thread online (renders queued audio ahead of time).")
+    while not _stop.is_set():
+        try:
+            if core is None:
+                time.sleep(0.5)
+                continue
+            pending = core.read_json(core.STORE_BROADCAST_QUEUE, []) or []
+            if not isinstance(pending, list) or len(pending) < 2:
+                time.sleep(0.4)
+                continue
+            # Skip the head (the consumer owns it) and anything already rendered.
+            nxt = None
+            for it in pending[1:]:
+                if isinstance(it, dict) and not it.get("audio_ready"):
+                    nxt = it
+                    break
+            if not nxt or _presynth_busy.is_set():
+                time.sleep(0.4)
+                continue
+
+            _presynth_busy.set()
+            try:
+                text = str(nxt.get("text") or "").strip()
+                if text:
+                    print(f"[PRESYNTH] Rendering queued line: {text[:60]!r}")
+                    meta = core.render_broadcast_audio(
+                        text, persona=nxt.get("persona") or "",
+                        voice=nxt.get("voice") or "",
+                        rate=nxt.get("rate") or "",
+                        pitch=nxt.get("pitch") or "")
+                    core.patch_broadcast(nxt.get("id", ""), {
+                        "wav_path": meta.get("wav_path", ""),
+                        "audio_duration_s": meta.get("audio_duration_s", 0.0),
+                        "audio_ready": bool(meta.get("audio_ready")),
+                        "engine": meta.get("engine", ""),
+                    })
+                    if meta.get("audio_ready"):
+                        print(f"[PRESYNTH] Ready: {text[:50]!r} "
+                              f"({meta.get('audio_duration_s')}s, {meta.get('engine')})")
+                    else:
+                        print(f"[PRESYNTH] Render FAILED: {meta.get('reason')}")
+            finally:
+                _presynth_busy.clear()
+        except Exception as e:
+            print(f"[PRESYNTH] warning: {e}")
+        time.sleep(0.4)
+
 
 def speech_queue_consumer_loop():
     """Consumes broadcast tasks and speaks them with a real, reported result."""
@@ -100,7 +160,24 @@ def speech_queue_consumer_loop():
         pitch = task.get("pitch") or "+16Hz"
         source = task.get("source", "t1")
 
-        print(f"\n[SPEECH QUEUE] Broadcasting: \"{text}\" (persona={persona}, from {source})...")
+        # Use the audio the pre-synthesis thread already rendered, if it is
+        # ready. The head item is deliberately NOT rendered by that thread (it
+        # avoids racing the pop), so when it is the only item queued we render
+        # it here - still before the mic is touched, never during a hold.
+        wav_path = task.get("wav_path") or ""
+        duration = float(task.get("audio_duration_s") or 0.0)
+        if not (task.get("audio_ready") and wav_path and os.path.exists(wav_path)):
+            print("[SPEECH QUEUE] No pre-rendered audio; rendering now (off the mic)...")
+            meta = core.render_broadcast_audio(
+                text, persona=persona, voice=voice, rate=rate, pitch=pitch) \
+                if core is not None else {"audio_ready": False, "reason": "core unavailable"}
+            wav_path = meta.get("wav_path", "") or ""
+            duration = float(meta.get("audio_duration_s") or 0.0)
+            if not meta.get("audio_ready"):
+                print(f"[SPEECH QUEUE] Render failed: {meta.get('reason')}")
+
+        print(f"\n[SPEECH QUEUE] Broadcasting: \"{text}\" (persona={persona}, from {source}"
+              + (f", pre-rendered {duration}s" if duration else "") + ")...")
 
         result = None
         if global_talk_controller is not None:
@@ -108,6 +185,8 @@ def speech_queue_consumer_loop():
                 result = global_talk_controller.speak_and_hold(
                     text, voice=voice, rate=rate, pitch=pitch,
                     output_device=AUDIO_OUTPUT_DEVICE, persona=persona,
+                    pre_rendered_wav=wav_path if duration else "",
+                    pre_rendered_duration=duration,
                 )
             except Exception as e:
                 print(f"[AUDIO WORKER] Broadcast exception: {e}")
@@ -246,6 +325,7 @@ def start_room_audio_listener():
     kb.CHAT_SEND_MODE = "outbox"
 
     threading.Thread(target=speech_queue_consumer_loop, daemon=True, name="BroadcastConsumer").start()
+    threading.Thread(target=presynth_loop, daemon=True, name="PreSynth").start()
     threading.Thread(target=control_state_sync_loop, args=(kb,), daemon=True, name="ControlSync").start()
 
     try:

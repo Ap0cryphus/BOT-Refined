@@ -92,5 +92,8 @@
   },
   "ignored_names": [
     "Music_Bot"
-  ]
+  ],
+  "talk_quiet_window_s": 1.0,
+  "talk_quiet_timeout_s": 15.0,
+  "talk_min_audio_fraction": 0.5
 }

@@ -824,6 +824,23 @@ def synthesize_speech_to_wav(
     print("[TTS] Every configured engine failed; no audio produced.")
     return ""
 
+def _wav_duration_seconds(wav_path: str) -> float:
+    """Duration of a WAV in seconds, or 0.0 when it cannot be measured.
+
+    Needed for the "at least 50% of the intended audio" bar: the intended length
+    has to be known before playback so the heard portion can be judged against
+    it. Returns 0.0 rather than guessing, and callers treat 0.0 as fatal."""
+    try:
+        import wave
+        with wave.open(wav_path, "rb") as w:
+            rate = w.getframerate() or 0
+            if rate <= 0:
+                return 0.0
+            return w.getnframes() / float(rate)
+    except Exception:
+        return 0.0
+
+
 def play_wav_to_virtual_cable(wav_path: str, target_name: Optional[str] = None) -> bool:
     """
     Directly streams WAV audio to VB-Audio CABLE Input so Camfrog microphone receives it.
@@ -1185,15 +1202,20 @@ class CamfrogCEFTalkController:
         # to take a mic somebody was holding. Prefer the authoritative bubble
         # reader, and only fall back to the legacy label if it is unavailable.
         if self._ocr_available():
-            try:
-                bubble = self.read_speaker_name()
-            except Exception:
-                bubble = None
-            if bubble:
-                if is_bot_name_strict(bubble):
-                    return {"state": "held_by_bot", "speaker": bubble,
-                            "is_free": False}
-                return {"state": "busy", "speaker": bubble, "is_free": False}
+            bubble, ok = self.read_speaker_name_verbose()
+            if ok:
+                if bubble:
+                    if is_bot_name_strict(bubble):
+                        return {"state": "held_by_bot", "speaker": bubble,
+                                "is_free": False}
+                    return {"state": "busy", "speaker": bubble, "is_free": False}
+                # Read succeeded and the bubble is genuinely empty: the room is
+                # free. This is the ONLY path that may claim "free" via OCR.
+                return {"state": "free", "speaker": "", "is_free": True}
+            # OCR could not run. Do NOT fall through to "free" - an unreadable
+            # bubble means UNKNOWN, and unknown must never invite the bot to talk
+            # over whoever may be speaking.
+            return {"state": "unconfirmable", "speaker": "", "is_free": False}
         if is_unknown_speaker(raw):
             if not attached and not self.talk_button_rect:
                 return {"state": "unconfirmable", "speaker": raw or "", "is_free": False}
@@ -1201,6 +1223,74 @@ class CamfrogCEFTalkController:
         if is_bot_name(raw):
             return {"state": "held_by_bot", "speaker": raw, "is_free": False}
         return {"state": "busy", "speaker": raw, "is_free": False}
+
+    def wait_for_quiet_mic(self, quiet_s: float = 1.0,
+                           timeout_s: float = 15.0,
+                           poll_s: float = 0.12) -> Dict[str, Any]:
+        """Blocks until the bubble has been empty for a FULL `quiet_s` window.
+
+        A single empty sample is NOT a free mic. During testing the bubble flickers
+        to empty between words while a human keeps talking, and one OCR miss can
+        look identical to a genuine gap. So the room only counts as free after
+        `quiet_s` CONTINUOUS seconds with no name, and any name at all resets the
+        timer to zero.
+
+        Fail-closed: an OCR read that could not run at all is not silence, so it
+        never starts or continues the quiet timer. If we cannot see, we do not
+        take the mic - otherwise a broken OCR pipeline would invite the bot to
+        talk over whoever is actually speaking.
+
+        Returns {ok, quiet_s, waited_s, samples, last_speaker, reason}."""
+        cfg = _core.load_config() if _core is not None else {}
+        if quiet_s is None:
+            quiet_s = float(cfg.get("talk_quiet_window_s", 1.0))
+        if timeout_s is None:
+            timeout_s = float(cfg.get("talk_quiet_timeout_s", 15.0))
+
+        start = time.time()
+        quiet_since = None      # when the CURRENT uninterrupted quiet run began
+        samples = 0
+        last_speaker = ""
+        unreadable = 0
+
+        while time.time() - start < timeout_s:
+            bubble, ok = self.read_speaker_name_verbose()
+            samples += 1
+            if not ok:
+                # Cannot see the room. Never treat this as silence.
+                unreadable += 1
+                quiet_since = None
+                time.sleep(poll_s)
+                continue
+            if bubble:
+                last_speaker = bubble
+                quiet_since = None       # any name resets the window completely
+            else:
+                if quiet_since is None:
+                    quiet_since = time.time()
+                elif time.time() - quiet_since >= quiet_s:
+                    waited = time.time() - start
+                    if _core is not None:
+                        _core.log_event("talk", action="quiet_window_ok",
+                                        quiet_s=quiet_s, waited_s=round(waited, 2),
+                                        samples=samples)
+                    print(f"[CEF TALK CONTROLLER] Mic quiet for "
+                          f"{quiet_s:.1f}s ({samples} samples, {waited:.1f}s) - safe to grab.")
+                    return {"ok": True, "quiet_s": quiet_s,
+                            "waited_s": round(waited, 2), "samples": samples,
+                            "last_speaker": last_speaker, "reason": "quiet window satisfied"}
+            time.sleep(poll_s)
+
+        waited = time.time() - start
+        reason = ("timed out: bubble unreadable" if unreadable == samples
+                  else f"timed out: still busy (last speaker {last_speaker!r})")
+        if _core is not None:
+            _core.log_event("talk", action="quiet_window_timeout",
+                            waited_s=round(waited, 2), samples=samples,
+                            unreadable=unreadable, last_speaker=last_speaker[:40])
+        print(f"[CEF TALK CONTROLLER] Mic never went quiet: {reason}")
+        return {"ok": False, "quiet_s": quiet_s, "waited_s": round(waited, 2),
+                "samples": samples, "last_speaker": last_speaker, "reason": reason}
 
     def is_mic_free(self) -> Tuple[bool, str]:
         """Returns (is_free, current_speaker). Unknown is NOT treated as free."""
@@ -1456,7 +1546,7 @@ class CamfrogCEFTalkController:
 
     def acquire_talk(self, timeout_s: Optional[float] = None,
                      stable_s: Optional[float] = None,
-                     allow_unverified: bool = True) -> Dict[str, Any]:
+                     allow_unverified: bool = False) -> Dict[str, Any]:
         """
         Rapidly re-presses the talk button - rotating press patterns with jitter -
         until KaeKae's own name holds the room speaker slot for talk_stable_seconds.
@@ -1464,6 +1554,13 @@ class CamfrogCEFTalkController:
 
         On timeout the mic is always released and a structured result is returned:
         {ok, attempts, patterns, observed_speaker, stability_seconds, method}.
+
+        `allow_unverified` now defaults to FALSE. It used to default to True,
+        which let a "talk button pixels look pressed" verdict be reported as a
+        successful grab - and a dark Talk button renders that way even when
+        another user actually won. Production no longer routes through this
+        method at all (speak_and_hold presses once and demands the name bubble),
+        but the default is flipped so any future caller is safe by construction.
         """
         cfg = _core.load_config() if _core is not None else {}
         if timeout_s is None:
@@ -1811,6 +1908,28 @@ class CamfrogCEFTalkController:
             return ""
         return re.sub(r"[^A-Za-z0-9_$\-]", "", raw)
 
+    def read_speaker_name_verbose(self):
+        """Returns (name, ok). `ok` is False when the OCR pipeline could not run
+        at all (no region configured, no pytesseract, screenshot failed).
+
+        This distinction is the whole point: a genuinely empty bubble and a
+        failed read BOTH return "" from read_speaker_name(), so treating "" as
+        "the room is free" would let a broken OCR pipeline invite the bot to
+        talk over whoever is actually speaking. Callers that gate the mic must
+        consult `ok` and fail CLOSED when it is False."""
+        reg = (self.coords or {}).get("active_speaker_ocr_region")
+        if not reg or not pyautogui:
+            return "", False
+        try:
+            import pytesseract
+            im = pyautogui.screenshot(region=(int(reg["left"]), int(reg["top"]),
+                                              int(reg["width"]), int(reg["height"])))
+            im = im.resize((im.width * 3, im.height * 3))
+            raw = pytesseract.image_to_string(im, config="--psm 7").strip()
+        except Exception:
+            return "", False
+        return re.sub(r"[^A-Za-z0-9_$\-]", "", raw), True
+
     def confirm_we_own_the_mic(self, need_consecutive: int = 2, use_flow: bool = False):
         """True when OUR name is in the active-speaker bubble.
 
@@ -1856,14 +1975,22 @@ class CamfrogCEFTalkController:
             return True, red, name
         return False, red, name
 
-    def mic_state(self):
+    def mic_state_tuple(self):
         """Returns (state, name, flow_red). States:
             idle | queued_ours | ours_active | queued_other | other_active
 
         Flow is sampled FIRST because it costs ~29ms while the name bubble OCR
         costs ~170ms, and Camfrog only keeps our name in the bubble for ~1/3s
         after a win - so the cheap test gates the expensive one. When nobody is
-        transmitting there is no point paying for OCR at all."""
+        transmitting there is no point paying for OCR at all.
+
+        This was previously named `mic_state`, which SHADOWED the dict-returning
+        `mic_state` defined earlier in this same class. Production then did
+        `info = self.mic_state(); info["state"]` and died with
+        `TypeError: tuple indices must be integers` on every broadcast, so the
+        voice path never reached the grab at all. Production owns the dict name
+        now; the tuple form is kept for the test harness only, and under its own
+        name so it can never shadow anything again."""
         red = self.read_audio_flow()
         if red is None or red >= self._flow_red_threshold:
             return "idle", "", red
@@ -1871,13 +1998,13 @@ class CamfrogCEFTalkController:
         flow = (red is not None and red < self._flow_red_threshold)
         if not name:
             return "idle", "", red
-        ours = is_bot_name(name)
+        ours = is_bot_name_strict(name)
         if ours:
             return ("ours_active" if flow else "queued_ours"), name, red
         return ("other_active" if flow else "queued_other"), name, red
 
     def describe_mic_state(self) -> str:
-        state, name, red = self.mic_state()
+        state, name, red = self.mic_state_tuple()
         flow_txt = "n/a" if red is None else ("%.0f" % red)
         return "%s name=%r flow=%s" % (state, name, flow_txt)
 
@@ -2192,25 +2319,39 @@ class CamfrogCEFTalkController:
         max_wait_sec: float = 12.0,
         output_device: Optional[str] = None,
         persona: str = "valley",
-        gate: bool = True
+        gate: bool = True,
+        pre_rendered_wav: str = "",
+        pre_rendered_duration: float = 0.0
     ) -> Dict[str, Any]:
         """
-        End-to-end voice broadcast that reports the TRUTH:
-        1. Applies the one-hour repeat gate (bypassed for diagnostics).
-        2. Synthesizes audio first, so the mic is never held during synthesis.
-        3. Waits for the room to be free (CEF speaker label, not pixels).
-        4. acquire_talk(): rapid rotating re-presses until KaeKae's name holds
-           the speaker slot. A failed grab ABORTS the broadcast.
-        5. Plays into the VB-Cable input and reports the actual playback result.
-        6. Always releases in `finally`.
+        End-to-end voice broadcast that reports the TRUTH.
+
+        The order here is load-bearing and was measured, not assumed:
+          1. Use pre-synthesized audio when supplied, so TTS never happens
+             while the mic is held.
+          2. Wait for a FULL `talk_quiet_window_s` of silence. Never press while
+             a human holds the mic - against a continuous hold the bot lost 39
+             presses in 10s and took it zero times. Clicking cannot win a held
+             mic; waiting can.
+          3. Start the audio FIRST, then press-and-hold. This is the opposite of
+             the intuitive order and it is what Camfrog requires: voice activity
+             must already be present when the press lands. Measured in one room -
+             press-then-audio owned 0% of samples, audio-then-press owned 100%.
+          4. Require our own name in the bubble on 2 consecutive samples. A dark
+             Talk button is NOT proof of ownership; a rival can render it pressed.
+          5. Count how long we still held the mic with audio flowing, and require
+             at least `talk_min_audio_fraction` of the intended clip.
+          6. Always release in `finally`.
 
         Returns a dict: {ok, acquired, playback_ok, engine, observed_speaker,
-                         stability_seconds, attempts, method, reason}.
+                         intended_duration_s, heard_duration_s, audio_fraction,
+                         attempts, method, reason}.
         """
         result: Dict[str, Any] = {
             "ok": False, "acquired": False, "playback_ok": False, "engine": "",
             "observed_speaker": "", "stability_seconds": 0.0,
-            "attempts": 0, "method": "none", "reason": "",
+            "intended_duration_s": 0.0, "heard_duration_s": 0.0,
+            "audio_fraction": 0.0, "attempts": 0, "method": "none", "reason": "",
         }
 
         if gate and _core is not None and not _core.claim_or_suppress("reply", text_to_say):
@@ -2219,88 +2360,142 @@ class CamfrogCEFTalkController:
             print(f"[CEF TALK CONTROLLER] Gate: suppressed repeat: {text_to_say[:60]!r}")
             return result
 
-        temp_wav = "temp_say_broadcast.wav"
-        speech_duration = max(2.0, len(text_to_say.split()) * 0.38)
+        cfg = _core.load_config() if _core is not None else {}
+        min_fraction = float(cfg.get("talk_min_audio_fraction", 0.50))
+        quiet_s = float(cfg.get("talk_quiet_window_s", 1.0))
+        quiet_timeout = float(cfg.get("talk_quiet_timeout_s", 15.0))
         target_out = output_device or get_configured_output_device()
 
-        # 1. Synthesize BEFORE taking the mic
-        engine = synthesize_speech_to_wav(
-            text_to_say, temp_wav, voice=voice, rate=rate, pitch=pitch, persona=persona
-        )
-        result["engine"] = engine if isinstance(engine, str) else ""
-        if not engine:
-            result["reason"] = "TTS synthesis failed - no audio to broadcast"
+        # 1. Audio first, and off the mic. A pre-render from the queue's
+        #    background synthesis means we never hold the mic during TTS.
+        if pre_rendered_wav and os.path.exists(pre_rendered_wav):
+            wav_path = pre_rendered_wav
+            result["engine"] = "cache"
+            dur = pre_rendered_duration or _wav_duration_seconds(wav_path)
+        else:
+            wav_path = "temp_say_broadcast.wav"
+            engine = synthesize_speech_to_wav(
+                text_to_say, wav_path, voice=voice, rate=rate, pitch=pitch,
+                persona=persona)
+            result["engine"] = engine if isinstance(engine, str) else ""
+            if not engine:
+                result["reason"] = "TTS synthesis failed - no audio to broadcast"
+                self.last_broadcast = result
+                print(f"[CEF TALK CONTROLLER] ABORT: {result['reason']}")
+                return result
+            dur = _wav_duration_seconds(wav_path)
+
+        intended = round(float(dur), 2)
+        result["intended_duration_s"] = intended
+        if intended <= 0.0:
+            result["reason"] = "rendered audio has no measurable duration"
             self.last_broadcast = result
             print(f"[CEF TALK CONTROLLER] ABORT: {result['reason']}")
             return result
 
-        # 2. Wait for the room to be free
-        start_wait = time.time()
-        print(f"[CEF TALK CONTROLLER] Waiting for microphone availability for: \"{text_to_say}\"...")
-        while time.time() - start_wait < max_wait_sec:
-            info = self.get_mic_battle_status(window_sec=1.5)
-            if info.get("is_free"):
-                print("[CEF TALK CONTROLLER] Mic is FREE. Proceeding to verified grab...")
-                break
-            if info.get("is_battling"):
-                print(f"[CEF TALK CONTROLLER] Mic battle in progress "
-                      f"({', '.join(info.get('competing_speakers', []))}). Waiting...")
-            elif info.get("held_by_bot"):
-                print("[CEF TALK CONTROLLER] Our own name is showing; re-grabbing to re-open the mic.")
-                break
-            elif info.get("state") == "unconfirmable":
-                print("[CEF TALK CONTROLLER] Speaker state UNCONFIRMABLE; attempting a verified grab anyway.")
-                break
-            else:
-                print(f"[CEF TALK CONTROLLER] Mic occupied by '{info.get('current_speaker')}'. Waiting...")
-            time.sleep(0.12)
 
-        # 3. Verified acquisition - rapid re-press until our name is shown
-        grab = self.acquire_talk()
-        result.update({
-            "acquired": bool(grab.get("ok")),
-            "attempts": grab.get("attempts", 0),
-            "method": grab.get("method", "none"),
-            "observed_speaker": grab.get("observed_speaker", ""),
-            "stability_seconds": grab.get("stability_seconds", 0.0),
-            "speaker_confirmed": bool(grab.get("speaker_confirmed", True)),
-        })
-        if not result["acquired"]:
-            result["reason"] = grab.get("reason", "mic grab could not be verified")
+        # 2. Wait for real silence. A single empty sample is not a free mic.
+        print(f"[CEF TALK CONTROLLER] Waiting up to {quiet_timeout:.0f}s for "
+              f"{quiet_s:.1f}s of silence: \"{text_to_say}\"...")
+        quiet = self.wait_for_quiet_mic(quiet_s=quiet_s, timeout_s=quiet_timeout)
+        result["quiet_waited_s"] = quiet.get("waited_s", 0.0)
+        if not quiet.get("ok"):
+            result["reason"] = f"never got a quiet mic: {quiet.get('reason', '')}"
             self.last_broadcast = result
-            print(f"[CEF TALK CONTROLLER] ABORT: {result['reason']} - room never showed KaeKae as speaker.")
-            self.release_mic()
+            print(f"[CEF TALK CONTROLLER] ABORT: {result['reason']}")
             return result
-        if not result["speaker_confirmed"]:
-            # Be explicit in the broadcast record that the mic was opened but the
-            # room never confirmed the speaker slot.
-            result["reason"] = grab.get("reason", "press held; speaker label unreadable")
-            print("[CEF TALK CONTROLLER] NOTE: broadcasting on an unverified mic "
-                  "(Camfrog does not expose the speaker label).")
+
+        # 3. AUDIO FIRST, then press. Reversing these two steps loses the mic.
+        stop_audio = threading.Event()
+        played_flag: Dict[str, Any] = {"ok": False, "error": ""}
+
+        def _play():
+            # Loop so a short render still has voice activity running for the
+            # whole hold. The loop stops the moment ownership monitoring ends.
+            while not stop_audio.is_set():
+                try:
+                    if not play_wav_to_virtual_cable(wav_path, target_out):
+                        played_flag["error"] = "playback failed on every output route"
+                        return
+                    played_flag["ok"] = True
+                except Exception as e:
+                    played_flag["error"] = f"playback exception: {e}"
+                    return
+
+        audio_thread = threading.Thread(target=_play, daemon=True)
+        audio_thread.start()
+        time.sleep(0.35)   # let voice activity exist BEFORE the press lands
+        result["attempts"] = 1
+        pressed = self.fast_press_hold()
+        result["method"] = self.active_method
+        if not pressed:
+            stop_audio.set()
+            result["reason"] = "talk button could not be pressed"
+            self.release_mic()
+            self.last_broadcast = result
+            return result
 
         try:
-            # 4. Lead-in cushion for the Camfrog audio gate, then play
-            time.sleep(0.18)
-            played = play_wav_to_virtual_cable(temp_wav, target_out)
-            result["playback_ok"] = bool(played)
-            if not played:
-                result["reason"] = "playback failed on every output route"
-                print("[CEF TALK CONTROLLER] WARNING: playback failed on every output route.")
-                time.sleep(0.25)
-            else:
-                # 5. Trailing cushion so the last syllable is never clipped
-                time.sleep(0.25)
-            result["ok"] = result["acquired"] and result["playback_ok"]
+            # 4. Identity, not pixels, decides the win.
+            owned, _flow, name = self.confirm_we_own_the_mic(need_consecutive=2)
+            result["observed_speaker"] = name or ""
+            if not owned:
+                shown = name or "nobody"
+                result["reason"] = f"press did not win the mic (bubble showed {shown!r})"
+                self.last_broadcast = result
+                print(f"[CEF TALK CONTROLLER] ABORT: {result['reason']}")
+                return result
+            result["acquired"] = True
+
+            # 5. Hold while the audio runs, watching for a rival stealing it.
+            heard = 0.0
+            last_poll = time.time()
+            while heard < intended:
+                if stop_audio.wait(0.25):
+                    break
+                now = time.time()
+                heard += (now - last_poll)
+                last_poll = now
+                still_ours, _f, nm = self.confirm_we_own_the_mic(need_consecutive=1)
+                if not still_ours:
+                    result["reason"] = (f"lost the mic mid-broadcast after "
+                                        f"{heard:.1f}s (bubble showed {nm!r})")
+                    result["observed_speaker"] = nm or ""
+                    break
+
+            result["heard_duration_s"] = round(min(heard, intended), 2)
+            result["audio_fraction"] = (round(min(heard, intended) / intended, 3)
+                                        if intended > 0 else 0.0)
+            result["playback_ok"] = bool(played_flag.get("ok"))
+            if not result["playback_ok"] and played_flag.get("error"):
+                result["reason"] = played_flag["error"]
+            elif result["audio_fraction"] < min_fraction:
+                result["reason"] = (f"partial audio: only "
+                                    f"{result['audio_fraction']*100:.0f}% of "
+                                    f"{intended:.1f}s reached the room "
+                                    f"(need {min_fraction*100:.0f}%)")
         except Exception as e:
-            result["reason"] = f"playback exception: {e}"
-            print(f"[CEF TALK CONTROLLER] Playback exception: {e}")
+            result["reason"] = f"broadcast exception: {e}"
+            print(f"[CEF TALK CONTROLLER] Broadcast exception: {result['reason']}")
         finally:
             # 6. Always release, success or failure
+            stop_audio.set()
+            try:
+                audio_thread.join(timeout=1.5)
+            except Exception:
+                pass
             self.release_mic()
 
+        result["ok"] = bool(
+            result["acquired"] and result["playback_ok"]
+            and result["audio_fraction"] >= min_fraction)
         self.last_broadcast = result
         if _core is not None:
             _core.log_event("broadcast", **result)
+        print(f"[CEF TALK CONTROLLER] Broadcast ok={result['ok']} "
+              f"acquired={result['acquired']} fraction={result['audio_fraction']:.0%} "
+              f"({result['heard_duration_s']}s/{intended:.1f}s) "
+              f"reason={result['reason']!r}")
         return result
 
 # Global singleton talk controller

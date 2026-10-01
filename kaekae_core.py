@@ -17,6 +17,7 @@ Nothing here talks to Camfrog, the microphone, or the network.
 
 import json
 import os
+import hashlib
 import threading
 import time
 from datetime import datetime
@@ -501,10 +502,100 @@ def drain_inbox_commands() -> list:
 # entries): the old single file mixed two schemas and one consumer's blind
 # pop(0) destroyed the other's entries.
 # ------------------------------------------------------------------------------
+def wav_duration_seconds(wav_path: str) -> float:
+    """Duration of a WAV file in seconds, or 0.0 when it cannot be measured.
+
+    Used to hold the broadcast to an "at least 50% of the intended audio" bar:
+    we need to know how long the clip was SUPPOSED to be before we can judge
+    how much of it the room actually heard."""
+    try:
+        import wave
+        with wave.open(wav_path, "rb") as w:
+            rate = w.getframerate() or 0
+            if rate <= 0:
+                return 0.0
+            return w.getnframes() / float(rate)
+    except Exception:
+        return 0.0
+
+
+def cache_path_for_text(text: str) -> str:
+    """Stable per-text cache filename, so identical wording reuses its render."""
+    digest = hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest()[:16]
+    return os.path.join("broadcast_cache", f"{digest}.wav")
+
+
+def render_broadcast_audio(text: str, persona: str = "", voice: str = "",
+                           rate: str = "", pitch: str = "") -> Dict[str, Any]:
+    """Pre-renders a broadcast to a cached WAV and returns its metadata.
+
+    Done OFF the mic, ahead of time, so that by the time the room falls quiet
+    the audio is already sitting on disk. Synthesis costs 2-5s (much more on the
+    first Qwen load); doing it while already holding the microphone would hold it
+    in silence, which is both rude to the room and a needless risk.
+
+    The result is attached to the queue task as `wav_path` / `audio_duration_s`
+    so the consumer can go straight to playback with no TTS on the critical path.
+    """
+    out: Dict[str, Any] = {
+        "wav_path": "", "audio_duration_s": 0.0, "audio_ready": False,
+        "engine": "", "reason": "",
+    }
+    try:
+        cfg = load_config() or {}
+    except Exception:
+        cfg = {}
+    voice = voice or cfg.get("voice", "en-US-AvaNeural")
+    rate = rate or cfg.get("voice_rate", "+12%")
+    pitch = pitch or cfg.get("voice_pitch", "+16Hz")
+    persona = persona or cfg.get("elevenlabs_persona", "valley")
+
+    path = cache_path_for_text(text)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    except Exception:
+        pass
+
+    # Reuse a good cached render rather than paying TTS again.
+    if os.path.exists(path) and os.path.getsize(path) > 1024:
+        dur = wav_duration_seconds(path)
+        if dur > 0.25:
+            out.update({"wav_path": path, "audio_duration_s": round(dur, 2),
+                        "audio_ready": True, "engine": "cache",
+                        "reason": "reused cached render"})
+            return out
+
+    try:
+        # Imported lazily: cef_probe pulls in pyautogui/win32 and (via
+        # kaekae_bot) may import this module, so a top-level import here would
+        # risk a circular import at startup.
+        from cef_probe import synthesize_speech_to_wav
+        engine = synthesize_speech_to_wav(text, path, voice=voice, rate=rate,
+                                          pitch=pitch, persona=persona)
+    except Exception as e:
+        out["reason"] = f"TTS exception: {e}"
+        return out
+    if not engine:
+        out["reason"] = "TTS synthesis failed"
+        return out
+
+    dur = wav_duration_seconds(path)
+    if dur <= 0.0:
+        out["reason"] = "TTS produced an unmeasurable WAV"
+        return out
+    out.update({"wav_path": path, "audio_duration_s": round(dur, 2),
+                "audio_ready": True, "engine": engine})
+    return out
+
+
 def enqueue_broadcast(text: str, persona: str = "", voice: str = "",
                       rate: str = "", pitch: str = "", source: str = "t1",
                       requester: str = "") -> bool:
-    """Appends a speech task for Terminal 2 under the cross-process lock."""
+    """Appends a speech task for Terminal 2 under the cross-process lock.
+
+    The audio is NOT rendered here. Queueing must stay instant so the chat
+    worker never blocks on a multi-second TTS call; the consumer's pre-synthesis
+    thread renders ahead of the item it is about to speak."""
     task = {
         "text": str(text),
         "persona": persona,
@@ -515,6 +606,12 @@ def enqueue_broadcast(text: str, persona: str = "", voice: str = "",
         "requester": requester,
         "created_at": time.time(),
         "ts": datetime.now().isoformat(timespec="seconds"),
+        "wav_path": "",
+        "audio_duration_s": 0.0,
+        "audio_ready": False,
+        "id": hashlib.sha1(
+            f"{time.time()}|{os.getpid()}|{text}".encode("utf-8", "ignore")
+        ).hexdigest()[:12],
     }
 
     def _mutator(data: Any) -> Dict[str, Any]:
@@ -553,6 +650,27 @@ def requeue_broadcast(task: Dict[str, Any]) -> bool:
     def _mutator(data: Any) -> Any:
         items = data if isinstance(data, list) else []
         items.insert(0, task)   # retry promptly, ahead of newer items
+        return items
+
+    return bool(locked_update(STORE_BROADCAST_QUEUE, _mutator, []))
+
+
+def patch_broadcast(task_id: str, fields: Dict[str, Any]) -> bool:
+    """Writes fields onto a still-queued task, matched by id.
+
+    This is how pre-synthesis publishes its result: the background thread renders
+    an item that has not been popped yet, then marks it ready in place. Without
+    this the consumer would have to re-render on the critical path, or the audio
+    would be attached to a task object that no longer exists in the store."""
+    if not task_id or not isinstance(fields, dict):
+        return False
+
+    def _mutator(data: Any) -> Any:
+        items = data if isinstance(data, list) else []
+        for it in items:
+            if isinstance(it, dict) and it.get("id") == task_id:
+                it.update(fields)
+                return items
         return items
 
     return bool(locked_update(STORE_BROADCAST_QUEUE, _mutator, []))

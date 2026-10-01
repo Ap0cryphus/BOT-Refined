@@ -150,7 +150,7 @@ def main() -> int:
             # transmitting, rapid re-pressing is pure noise and only invites
             # flood protection - take the free mic with a single press instead.
             if polls % 2 == 0:
-                st, nm, _r = tc.mic_state()
+                st, nm, _r = tc.mic_state_tuple()
                 if st in ("idle", "queued_ours"):
                     # Press AND HOLD. A quick tap (down+up) never actually
                     # takes a push-to-talk mic, so the name bubble stayed empty

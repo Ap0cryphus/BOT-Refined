@@ -12,6 +12,11 @@ os.environ["KAEKAE_HOME"] = os.path.dirname(os.path.abspath(__file__))
 
 import kaekae_core as core
 
+# The talk controller is needed for the quiet-window and mic_state contract
+# tests. It is imported for its METHODS only - no test touches the real mic,
+# and none of these tests press or release anything.
+from cef_probe import CamfrogCEFTalkController, is_bot_name_strict
+
 # HERMETIC: redirect the shared store to a scratch folder so running this test
 # never touches the bot's real config.json / claim store / logs.
 import tempfile
@@ -247,6 +252,117 @@ def run_tests():
     core.save_config({"dup_reply_seconds": 1234}, announce=False)
     check("config: merge keeps other keys",
           core.load_config(force=True).get("dup_reply_seconds") == 1234)
+
+    # --- T11: broadcast queue + pre-rendered audio -----------------------
+    reset()
+    core.enqueue_broadcast("first line", source="t1")
+    core.enqueue_broadcast("second line", source="t1")
+    check("queue: two items queued", core.broadcast_queue_size() == 2,
+          str(core.broadcast_queue_size()))
+    a = core.pop_broadcast()
+    b = core.pop_broadcast()
+    check("queue: FIFO order", a["text"] == "first line" and b["text"] == "second line",
+          f"{a['text']!r}/{b['text']!r}")
+    check("queue: empty when drained", core.pop_broadcast() is None)
+
+    reset()
+    core.enqueue_broadcast("patchable line")
+    queued = core.read_json(core.STORE_BROADCAST_QUEUE, [])[0]
+    check("queue: task has an id", bool(queued.get("id")), str(queued.get("id")))
+    check("queue: starts not audio-ready", queued.get("audio_ready") is False)
+    core.patch_broadcast(queued["id"], {"wav_path": "x.wav",
+                                        "audio_duration_s": 3.5,
+                                        "audio_ready": True})
+    patched = core.read_json(core.STORE_BROADCAST_QUEUE, [])[0]
+    check("queue: pre-render attached by id",
+          patched.get("audio_ready") is True
+          and patched.get("audio_duration_s") == 3.5, str(patched))
+    core.patch_broadcast("nope", {"audio_ready": True})
+    check("queue: patch of unknown id is a no-op",
+          core.read_json(core.STORE_BROADCAST_QUEUE, [])[0].get("wav_path") == "x.wav")
+
+    reset()
+    core.enqueue_broadcast("will fail")
+    t = core.pop_broadcast()
+    t["attempts"] = 1
+    core.requeue_broadcast(t)
+    check("queue: requeue restores the line",
+          core.broadcast_queue_size() == 1
+          and core.pop_broadcast()["text"] == "will fail")
+
+    # --- T12: wav duration -----------------------------------------------
+    check("wav duration: missing file is 0.0",
+          core.wav_duration_seconds("does_not_exist.wav") == 0.0)
+    check("cache path: stable per text",
+          core.cache_path_for_text("abc") == core.cache_path_for_text("abc"))
+    check("cache path: differs per text",
+          core.cache_path_for_text("abc") != core.cache_path_for_text("abd"))
+
+    # --- T13: quiet window gate -----------------------------------------
+    # The gate must survive a stub whose bubble we control sample by sample.
+    class _StubCtl:
+        def __init__(self, script):
+            self.script = list(script)
+            self.calls = 0
+
+        def read_speaker_name_verbose(self):
+            v = self.script[min(self.calls, len(self.script) - 1)]
+            self.calls += 1
+            return v
+
+    ctl = _StubCtl([("", True)] * 40)
+    q = CamfrogCEFTalkController.wait_for_quiet_mic(ctl, quiet_s=1.0, timeout_s=3.0,
+                                                    poll_s=0.01)
+    check("quiet gate: constant silence opens the window", q["ok"] is True, str(q))
+
+    # A 0.5s blip must NOT count as quiet: the bubble is repopulated mid-window.
+    ctl = _StubCtl([("", True)] * 2 + [("Shtickie", True)] + [("", True)] * 40)
+    q = CamfrogCEFTalkController.wait_for_quiet_mic(ctl, quiet_s=1.0, timeout_s=0.4,
+                                                    poll_s=0.01)
+    check("quiet gate: a name mid-window blocks the grab", q["ok"] is False, str(q))
+
+    # Unreadable is NOT silence - this is the fail-closed rule.
+    ctl = _StubCtl([("", False)] * 40)
+    q = CamfrogCEFTalkController.wait_for_quiet_mic(ctl, quiet_s=1.0, timeout_s=0.3,
+                                                    poll_s=0.01)
+    check("quiet gate: unreadable bubble never counts as quiet", q["ok"] is False,
+          str(q))
+    check("quiet gate: unreadable timeout says so",
+          "unreadable" in q["reason"], q["reason"])
+
+    # --- T14: mic_state contract (regression) ----------------------------
+    # Two `mic_state` defs once lived in this class; the tuple version shadowed
+    # the dict one and production died on `info["state"]`. Pin the contract.
+    import inspect as _inspect
+    _src = _inspect.getsource(CamfrogCEFTalkController)
+    _defs = _src.count("    def mic_state(")
+    check("mic_state: exactly one definition", _defs == 1, f"found {_defs}")
+    _classdict = {k: v for k, v in vars(CamfrogCEFTalkController).items()
+                  if callable(v)}
+    _live = CamfrogCEFTalkController.mic_state
+    check("mic_state: production name returns a dict contract",
+          "is_free" in _inspect.getsource(_live), "dict-shaped mic_state missing")
+    check("mic_state: tuple helper kept under its own name",
+          hasattr(CamfrogCEFTalkController, "mic_state_tuple"))
+
+    def _dupes():
+        names = [k for k, v in vars(CamfrogCEFTalkController).items()
+                 if callable(v) and not k.startswith("__")]
+        return sorted({n for n in names if names.count(n) > 1})
+    check("mic_state: no silently shadowed methods", _dupes() == [], str(_dupes()))
+
+    # --- T15: pixel-only success is off by default -----------------------
+    _sig = _inspect.signature(CamfrogCEFTalkController.acquire_talk)
+    check("acquire_talk: allow_unverified defaults to False",
+          _sig.parameters["allow_unverified"].default is False,
+          str(_sig.parameters["allow_unverified"].default))
+
+    # --- T16: ownership identity -----------------------------------------
+    check("identity: KaeKaeToad is strictly ours", is_bot_name_strict("KaeKaeToad"))
+    check("identity: Shtickie is not ours", not is_bot_name_strict("Shtickie"))
+    check("identity: a rival is not mistaken for us",
+          not is_bot_name_strict("NotKaeKaeToad"))
+    check("identity: empty is not ours", not is_bot_name_strict(""))
 
     print("\n" + "=" * 60)
     if FAILS:
