@@ -1150,6 +1150,24 @@ class CamfrogCEFTalkController:
             result["attached"] = (self.talk_button_ctrl is not None or self.talk_button_rect is not None or self.main_hwnd is not None)
             return result
 
+    def _ocr_available(self) -> bool:
+        """True when the targeted bubble OCR path is ready to answer."""
+        try:
+            return bool(self._tess_cache_ready())
+        except Exception:
+            return False
+
+    def _tess_cache_ready(self) -> bool:
+        """Warm the Tesseract handle once; OCR init is slow and repeatable."""
+        global _TESS
+        if _TESS is None:
+            try:
+                import pytesseract
+                _TESS = pytesseract.pytesseract.tesseract_cmd and True
+            except Exception:
+                return False
+        return bool(_TESS)
+
     def mic_state(self) -> Dict[str, Any]:
         """
         Tri-state microphone truth, derived ONLY from the CEF/UIA speaker label:
@@ -1161,6 +1179,21 @@ class CamfrogCEFTalkController:
         attached = bool(getattr(self.probe, "window_handle", None)) or \
             bool(getattr(self.probe, "app_handle", None))
         raw = self.probe.get_speaker() if self.probe else ""
+        # The legacy probe label is unreliable and disagrees with the UI we can
+        # actually see: during a live battle it reported the mic "free" while
+        # 'Shtickie' was plainly rendered in the bubble, so the bot kept trying
+        # to take a mic somebody was holding. Prefer the authoritative bubble
+        # reader, and only fall back to the legacy label if it is unavailable.
+        if self._ocr_available():
+            try:
+                bubble = self.read_speaker_name()
+            except Exception:
+                bubble = None
+            if bubble:
+                if is_bot_name_strict(bubble):
+                    return {"state": "held_by_bot", "speaker": bubble,
+                            "is_free": False}
+                return {"state": "busy", "speaker": bubble, "is_free": False}
         if is_unknown_speaker(raw):
             if not attached and not self.talk_button_rect:
                 return {"state": "unconfirmable", "speaker": raw or "", "is_free": False}

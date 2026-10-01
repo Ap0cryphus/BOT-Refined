@@ -156,12 +156,13 @@ def main() -> int:
                     # takes a push-to-talk mic, so the name bubble stayed empty
                     # and this loop livelocked. Holding is what wins the mic.
                     log("  mic is FREE (%s) - pressing and HOLDING" % st)
-                    tc.fast_press_hold()
-                    flow_presses += 1
-                    time.sleep(0.15)
-                    # Camfrog only shows a name in the bubble while audio is
-                    # actually flowing, so a silent hold shows nothing. Start
-                    # the audio BEFORE checking, or the name never appears.
+                    # ORDER MATTERS, measured in a single-mic room:
+                    # pressing and THEN starting audio LOSES the mic
+                    # (flow 113 -> 66, bubble flips to the rival). Camfrog
+                    # needs voice activity already present when the press
+                    # lands, so the audio must start FIRST and the press
+                    # second. Verified: audio-then-press owns 100%,
+                    # press-then-audio owns 0%.
                     _th = None
                     if not args.no_audio:
                         import threading as _t
@@ -169,7 +170,10 @@ def main() -> int:
                             "temp_say_broadcast.wav", cp_module.get_configured_output_device()),
                             daemon=True)
                         _th.start()
-                        time.sleep(0.25)
+                        time.sleep(0.35)
+                    tc.fast_press_hold()
+                    flow_presses += 1
+                    time.sleep(0.25)
                     owned, _r2, nm2 = tc.confirm_we_own_the_mic()
                     log("  after hold: speaker=%r owned=%s" % (nm2, owned))
                     if owned:
