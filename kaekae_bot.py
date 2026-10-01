@@ -3564,6 +3564,47 @@ Keep under 250 characters!
         send_chat_message(f"{format_bot_timestamp()} Chatty mode ON! I will be mingling in the room.", override_mute=True)
         return
 
+    # 12y. Talk-control / mic diagnostics (Authorized Only)
+    if re.match(r'^!talkid$', raw_msg, re.IGNORECASE) or re.match(r'^!talkstatus$', raw_msg, re.IGNORECASE):
+        if not is_authorized_user(clean_user):
+            send_chat_message(f"@{clean_user}, !talkid is reserved for authorized creators.", override_mute=True)
+            return
+        try:
+            from cef_probe import global_talk_controller as _tc
+        except Exception as e:
+            send_chat_message(f"Talk controller unavailable: {e}", override_mute=True)
+            return
+        if _tc is None:
+            send_chat_message("Talk controller is NOT initialised - this terminal cannot grab the mic.", override_mute=True)
+            print("[TALK ID] global_talk_controller is None")
+            return
+        try:
+            cx, cy = _tc.get_talk_coordinates()
+        except Exception as e:
+            cx, cy = (-1, -1)
+            print(f"[TALK ID] coordinate read failed: {e}")
+        probe = getattr(_tc, "probe", None)
+        spk = ""
+        try:
+            spk = probe.get_speaker() if probe else ""
+        except Exception:
+            spk = ""
+        queued = 0
+        if _core is not None:
+            try:
+                queued = _core.broadcast_queue_size()
+            except Exception:
+                queued = 0
+        last = getattr(_tc, "last_broadcast", None) or {}
+        send_chat_message(
+            f"Talk @({cx},{cy}) ctrl={'yes' if getattr(_tc, 'talk_button_ctrl', None) else 'no'} "
+            f"speaker={spk or 'unknown'} holding={getattr(_tc, 'is_holding', False)} queued={queued}",
+            override_mute=True,
+        )
+        print(f"[TALK ID] coords=({cx},{cy}) ctrl={getattr(_tc,'talk_button_ctrl',None)} "
+              f"speaker={spk!r} holding={getattr(_tc,'is_holding',False)} queued={queued} "
+              f"last_broadcast={last}")
+
     # 12z. Ignore-list controls (Authorized Only) - hot-reloaded, no restart needed
     m_ign_add = re.match(r'^!ignore\s+([a-zA-Z0-9_$\-\.\s]{2,32})$', raw_msg, re.IGNORECASE)
     if m_ign_add:

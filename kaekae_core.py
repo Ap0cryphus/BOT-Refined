@@ -543,6 +543,21 @@ def pop_broadcast() -> Optional[Dict[str, Any]]:
     return result or None
 
 
+def requeue_broadcast(task: Dict[str, Any]) -> bool:
+    """Puts a FAILED broadcast back on the queue so a transient failure (mic busy,
+    TTS error) does not silently destroy the line. Retries are capped by the
+    caller via task['attempts']."""
+    if not isinstance(task, dict) or not str(task.get("text", "")).strip():
+        return False
+
+    def _mutator(data: Any) -> Any:
+        items = data if isinstance(data, list) else []
+        items.insert(0, task)   # retry promptly, ahead of newer items
+        return items
+
+    return bool(locked_update(STORE_BROADCAST_QUEUE, _mutator, []))
+
+
 def broadcast_queue_size() -> int:
     items = read_json(STORE_BROADCAST_QUEUE, [])
     return len(items) if isinstance(items, list) else 0

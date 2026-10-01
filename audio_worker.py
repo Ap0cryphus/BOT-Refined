@@ -126,6 +126,55 @@ def speech_queue_consumer_loop():
                   f"playback={result.get('playback_ok')} engine={result.get('engine')} "
                   f"speaker={result.get('observed_speaker')!r} attempts={result.get('attempts')}"
                   + (f" reason={result.get('reason')!r}" if result.get("reason") else ""))
+
+        # Always record the real outcome. A failed broadcast that leaves no trace
+        # is indistinguishable from one that was never attempted.
+        if core is not None:
+            try:
+                core.log_event(
+                    "broadcast",
+                    ok=bool(ok),
+                    acquired=bool(result.get("acquired")) if isinstance(result, dict) else None,
+                    playback_ok=bool(result.get("playback_ok")) if isinstance(result, dict) else None,
+                    engine=(result.get("engine") if isinstance(result, dict) else ""),
+                    observed_speaker=(result.get("observed_speaker") if isinstance(result, dict) else ""),
+                    attempts=(result.get("attempts") if isinstance(result, dict) else 0),
+                    method=(result.get("method") if isinstance(result, dict) else ""),
+                    reason=(result.get("reason") if isinstance(result, dict) else ""),
+                    source=source,
+                    text=text[:120],
+                )
+            except Exception as e:
+                print(f"[SPEECH QUEUE] Broadcast log warning: {e}")
+
+        # Re-queue a failed broadcast instead of destroying it, so a transient
+        # failure (mic busy, TTS hiccup) does not silently eat the line.
+        if not ok:
+            attempts = int(task.get("attempts", 0) or 0) + 1
+            if attempts <= 3:
+                task["attempts"] = attempts
+                task["text"] = text
+                task["persona"] = persona
+                task["voice"] = voice
+                task["rate"] = rate
+                task["pitch"] = pitch
+                task["source"] = source
+                if core is not None:
+                    try:
+                        core.requeue_broadcast(task)
+                        print(f"[SPEECH QUEUE] Re-queued after failure "
+                              f"(attempt {attempts}/3): {text[:60]!r}")
+                    except Exception as e:
+                        print(f"[SPEECH QUEUE] Re-queue failed: {e}")
+            else:
+                print(f"[SPEECH QUEUE] GIVING UP after 3 failed attempts: {text[:60]!r}")
+                if core is not None:
+                    try:
+                        core.log_event("broadcast", ok=False, gave_up=True,
+                                       attempts=attempts, text=text[:120])
+                    except Exception:
+                        pass
+
         print(f"[SPEECH QUEUE] Finished: \"{text}\"\n")
     print("[AUDIO WORKER] Broadcast consumer stopped.")
 

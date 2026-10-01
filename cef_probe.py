@@ -1425,6 +1425,19 @@ class CamfrogCEFTalkController:
         self._release_talk_mutex()
         return failure
 
+    def _log_grab_ok(self, method: str, cx: int, cy: int,
+                     started: float, how: str) -> None:
+        """Records a SUCCESSFUL grab dispatch. Proves the press was sent - NOT
+        that audio was heard; playback_ok verifies that separately."""
+        if _core is not None:
+            try:
+                _core.log_event("talk", action="grab_dispatched", method=method,
+                                target_x=cx, target_y=cy, how=how,
+                                elapsed_ms=int((time.time() - started) * 1000))
+                _core.set_talk_state(self._terminal_id(), True, method=method, observed=how)
+            except Exception:
+                pass
+
     def grab_mic(self, mode: Optional[str] = None, force: bool = False) -> bool:
         """
         Engages the microphone talk process securely:
@@ -1450,6 +1463,11 @@ class CamfrogCEFTalkController:
 
             cx, cy = self.get_talk_coordinates()
             print(f"[CEF TALK CONTROLLER] Grabbing mic via strategy: {use_mode} (Target: {cx}, {cy})...")
+            _grab_started = time.time()
+            if _core is not None:
+                # Evidence first: an ATTEMPTED grab is always recorded.
+                _core.log_event("talk", action="grab_attempt", mode=use_mode,
+                                target_x=cx, target_y=cy)
 
             # Strategy 1 (Primary for 'auto' and 'mouse_hold'): Calibrated Physical Mouse Hold
             # Focuses Camfrog, moves to button, and holds mouseDown throughout speech
@@ -1473,6 +1491,7 @@ class CamfrogCEFTalkController:
                         self.active_method = "mouse_hold"
                         self.grab_start_time = time.time()
                         print(f"[CEF TALK CONTROLLER] Mic locked via physical mouseDown on ({cx}, {cy}).")
+                        self._log_grab_ok("mouse_hold", cx, cy, _grab_started, "physical mouseDown")
                         return True
                     except Exception as e:
                         print(f"[CEF TALK CONTROLLER] Physical mouse hold error: {e}")
@@ -1489,6 +1508,7 @@ class CamfrogCEFTalkController:
                         self.active_method = "handsfree"
                         self.grab_start_time = time.time()
                         print(f"[CEF TALK CONTROLLER] Mic locked via Hands-Free toggle click on ({cx}, {cy}).")
+                        self._log_grab_ok("handsfree", cx, cy, _grab_started, "hands-free toggle click")
                         return True
                     except Exception as e:
                         print(f"[CEF TALK CONTROLLER] Hands-free click error: {e}")
@@ -1504,6 +1524,7 @@ class CamfrogCEFTalkController:
                     self.active_method = "cef_hwnd"
                     self.grab_start_time = time.time()
                     print(f"[CEF TALK CONTROLLER] Mic locked via CEF HWND WM_LBUTTONDOWN (client {pt.x}, {pt.y}).")
+                    self._log_grab_ok("cef_hwnd", cx, cy, _grab_started, f"CEF WM_LBUTTONDOWN client={pt.x},{pt.y}")
                     return True
                 except Exception as e:
                     print(f"[CEF TALK CONTROLLER] CEF HWND post error: {e}")
@@ -1517,6 +1538,7 @@ class CamfrogCEFTalkController:
                         self.active_method = "uia"
                         self.grab_start_time = time.time()
                         print("[CEF TALK CONTROLLER] Mic locked via UIA InvokePattern.")
+                        self._log_grab_ok("uia", cx, cy, _grab_started, "UIA InvokePattern")
                         return True
                     elif hasattr(self.talk_button_ctrl, "click_input"):
                         self.talk_button_ctrl.click_input()
@@ -1524,6 +1546,7 @@ class CamfrogCEFTalkController:
                         self.active_method = "uia"
                         self.grab_start_time = time.time()
                         print("[CEF TALK CONTROLLER] Mic locked via UIA click_input.")
+                        self._log_grab_ok("uia", cx, cy, _grab_started, "UIA click_input")
                         return True
                 except Exception as e:
                     print(f"[CEF TALK CONTROLLER] UIA button error: {e}")
@@ -1538,6 +1561,7 @@ class CamfrogCEFTalkController:
                         self.active_method = "f10"
                         self.grab_start_time = time.time()
                         print("[CEF TALK CONTROLLER] Mic locked via Camfrog F10 PTT hotkey.")
+                        self._log_grab_ok("f10", cx, cy, _grab_started, "F10 PTT hotkey")
                         return True
                     except Exception as e:
                         print(f"[CEF TALK CONTROLLER] F10 hotkey error: {e}")
@@ -1548,10 +1572,15 @@ class CamfrogCEFTalkController:
                         self.active_method = "f10"
                         self.grab_start_time = time.time()
                         print("[CEF TALK CONTROLLER] Mic locked via pyautogui F10 keyDown.")
+                        self._log_grab_ok("f10", cx, cy, _grab_started, "pyautogui F10 keyDown")
                         return True
                     except Exception:
                         pass
 
+            if _core is not None:
+                _core.log_event("talk", action="grab_failed", mode=use_mode,
+                                target_x=cx, target_y=cy,
+                                reason="no strategy produced a hold")
             return False
 
     def release_mic(self) -> bool:

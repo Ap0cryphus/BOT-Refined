@@ -90,5 +90,7 @@
       }
     }
   },
-  "ignored_names": []
+  "ignored_names": [
+    "Music_Bot"
+  ]
 }
