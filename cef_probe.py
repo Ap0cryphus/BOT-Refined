@@ -1337,7 +1337,8 @@ class CamfrogCEFTalkController:
         self.is_holding = False
 
     def acquire_talk(self, timeout_s: Optional[float] = None,
-                     stable_s: Optional[float] = None) -> Dict[str, Any]:
+                     stable_s: Optional[float] = None,
+                     allow_unverified: bool = True) -> Dict[str, Any]:
         """
         Rapidly re-presses the talk button - rotating press patterns with jitter -
         until KaeKae's own name holds the room speaker slot for talk_stable_seconds.
@@ -1426,6 +1427,32 @@ class CamfrogCEFTalkController:
                     pass
             time.sleep(0.03 + 0.012 * (attempts % 5))  # 30-90ms jitter
 
+        # DECOUPLING: a dispatched, still-held press on the real Talk button is
+        # treated as success even when the speaker label is unreadable. Camfrog
+        # draws the active-speaker label on canvas with no accessible name, so
+        # is_bot_name() could never match and EVERY broadcast failed - even
+        # though the press landed correctly. speaker_confirmed records which of
+        # the two actually happened, so the log never overstates certainty.
+        if allow_unverified and attempts > 0 and used and self.is_holding:
+            verdict = {
+                "ok": True,
+                "attempts": attempts,
+                "patterns": used,
+                "method": self.active_method,
+                "observed_speaker": observed,
+                "stability_seconds": 0.0,
+                "required_seconds": stable_s,
+                "speaker_confirmed": False,
+                "reason": "press held on talk button; speaker label unreadable (unverified)",
+            }
+            if _core is not None:
+                _core.log_event("talk", action="acquired_unverified", **verdict)
+                _core.set_talk_state(self._terminal_id(), True,
+                                     method=self.active_method, observed="unverified")
+            print(f"[CEF TALK CONTROLLER] ACQUIRED (unverified) after {attempts} press(es) "
+                  f"via {self.active_method}. Speaker label unreadable, press is held.")
+            return verdict
+
         failure = {
             "ok": False,
             "attempts": attempts,
@@ -1434,6 +1461,7 @@ class CamfrogCEFTalkController:
             "observed_speaker": observed,
             "stability_seconds": 0.0,
             "required_seconds": stable_s,
+            "speaker_confirmed": False,
             "reason": "timeout: KaeKae's name never held the speaker slot",
         }
         if _core is not None:
@@ -1739,6 +1767,7 @@ class CamfrogCEFTalkController:
             "method": grab.get("method", "none"),
             "observed_speaker": grab.get("observed_speaker", ""),
             "stability_seconds": grab.get("stability_seconds", 0.0),
+            "speaker_confirmed": bool(grab.get("speaker_confirmed", True)),
         })
         if not result["acquired"]:
             result["reason"] = grab.get("reason", "mic grab could not be verified")
@@ -1746,6 +1775,12 @@ class CamfrogCEFTalkController:
             print(f"[CEF TALK CONTROLLER] ABORT: {result['reason']} - room never showed KaeKae as speaker.")
             self.release_mic()
             return result
+        if not result["speaker_confirmed"]:
+            # Be explicit in the broadcast record that the mic was opened but the
+            # room never confirmed the speaker slot.
+            result["reason"] = grab.get("reason", "press held; speaker label unreadable")
+            print("[CEF TALK CONTROLLER] NOTE: broadcasting on an unverified mic "
+                  "(Camfrog does not expose the speaker label).")
 
         try:
             # 4. Lead-in cushion for the Camfrog audio gate, then play
