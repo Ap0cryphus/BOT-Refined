@@ -190,6 +190,38 @@ def looks_like_username(text: str) -> bool:
 
 
 
+def looks_like_clock(text: str) -> bool:
+    """True when a string is a CLOCK, not a username.
+
+    The roster panel shows a time ("8:13 AM"), and UIA exposes it as a right-side
+    control. The old scan treated it as a person and reported "813AM" in !who -
+    a fabricated user that then polluted the room pool. A username never
+    contains a colon and never ends in AM/PM."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    compact = re.sub(r"\s+", "", raw)
+    if re.fullmatch(r"\d{1,2}:\d{2}(AM|PM)?", compact, re.IGNORECASE):
+        return True
+    # OCR/UI often drops the colon: "813AM", "1042PM".
+    if re.fullmatch(r"\d{3,4}(AM|PM)", compact, re.IGNORECASE):
+        return True
+    if re.fullmatch(r"\d{1,2}:\d{2}:\d{2}", compact):
+        return True
+    return False
+
+
+def is_junk_panel_token(text: str) -> bool:
+    """True for anything on the panel that is chrome or a clock, never a person.
+
+    Covers the GIFTs/Users toolbar (which OCRs as "GIFTUsers2") and the room
+    clock, both of which previously reached the user pool and therefore !who."""
+    raw = (text or "").strip()
+    if not raw:
+        return True
+    return looks_like_clock(raw) or _is_ui_label(raw) or not looks_like_username(raw)
+
+
 def match_known_users(ocr_lines: List[str], known_users: List[str],
                       min_len: int = 3) -> List[str]:
     """Identifies which KNOWN users appear in a set of OCR'd panel lines.

@@ -333,6 +333,13 @@ class BotState:
         
         # Room Focus Tracking & Member Recognition
         self.current_focused_room = "Unknown Chatroom"
+        # Room membership is PER ROOM, not one flat set. A user routinely visits
+        # other rooms and can legitimately be in two at once, so a single global
+        # set both mixes rooms together and makes !who answer about people who
+        # are not here. Keyed: room -> {username.lower(): last_seen_epoch}.
+        self.room_users_by_room: Dict[str, Dict[str, float]] = {}
+        # Mirror of the CURRENT room only, for callers that just want "who is
+        # here right now". Deliberately never a union across rooms.
         self.current_room_users: Set[str] = set()
         self.room_users_activity: Dict[str, float] = {}
         
@@ -722,6 +729,14 @@ def save_bot_runtime_state():
             "current_active_speaker": state.current_active_speaker,
             "current_focused_room": state.current_focused_room,
             "current_room_users": sorted(state.current_room_users),
+            # Per-room membership is persisted so a restart does not lose who was
+            # where. Rooms are keyed individually because a user may legitimately
+            # appear under more than one.
+            "room_users_by_room": {
+                room: sorted(users)
+                for room, users in (state.room_users_by_room or {}).items()
+                if users
+            },
             "saved_at": datetime.now().isoformat(),
         }
     try:
@@ -768,6 +783,20 @@ def load_bot_runtime_state():
                 for u in data.get("current_room_users", []) or []:
                     if is_valid_camfrog_username(str(u)):
                         state.current_room_users.add(str(u))
+                # Restore per-room membership. Restored into the CURRENT room
+                # only when the room is still known; anything else is kept under
+                # its own key so cross-room membership survives a restart.
+                restored_room = None
+                for room, users in (data.get("room_users_by_room") or {}).items():
+                    bucket = state.room_users_by_room.setdefault(str(room), {})
+                    for u in users or []:
+                        if is_valid_camfrog_username(str(u)):
+                            bucket[str(u).lower()] = time.time()
+                    if str(room) == state.current_focused_room:
+                        restored_room = str(room)
+                if restored_room:
+                    state.current_room_users = set(
+                        state.room_users_by_room.get(restored_room, {}).keys())
                 # NOTE: recent_signatures (timestamp-based scheme) intentionally
                 # NOT restored - dedupe_claims.json is the durable claim store now.
             print("=" * 65)
@@ -1457,8 +1486,7 @@ def record_mic_grab_chunk(speaker: str, chunk_duration: float = 7.0):
     ts_str = format_bot_timestamp(dt)
 
     with state.lock:
-        state.current_room_users.add(speaker)
-        state.room_users_activity[speaker.lower()] = now_t
+        note_user_in_room(speaker)
 
         curr_session = state.current_active_grab_session
         if curr_session and curr_session["speaker"].lower() == speaker.lower() and (now_t - state.last_mic_chunk_time < 12.0):
@@ -2121,8 +2149,17 @@ def find_active_speaker(win) -> str:
 
 def scan_room_users(win) -> Set[str]:
     """
-    Scans the Camfrog room member list / participant area to identify who is in the room.
-    Streamlines with room memory, !who, !chat, and !diss commands.
+    Scans the Camfrog room member list / participant area to identify who is in
+    the CURRENT room. Streamlines with room memory, !who, !chat and !diss.
+
+    Membership is recorded PER ROOM. Users move between rooms and can be in two
+    at once, so a single flat set would answer !who with people from other rooms
+    and would keep a user "present" in a room they left.
+
+    Junk is rejected before a name can enter the pool. The right-hand column
+    exposes UI that is not a person - the room clock (read as "813AM" and
+    previously reported in !who as a user) and the GIFTs/Users toolbar - and the
+    old scan took both at face value because it only checked the character set.
     """
     if not win:
         with state.lock:
@@ -2132,6 +2169,7 @@ def scan_room_users(win) -> Set[str]:
     now_t = time.time()
     try:
         win_rect = win.rectangle()
+        wl = win_rect.left + int(win_rect.width() * 0.70)
         # Camfrog user list is docked on the right side
         for ctrl in win.descendants():
             c_type = ctrl.element_info.control_type
@@ -2139,26 +2177,82 @@ def scan_room_users(win) -> Set[str]:
                 txt = (ctrl.element_info.name or ctrl.window_text() or "").strip()
                 if not txt or len(txt) < 2 or len(txt) > 35:
                     continue
+                # Reject clocks and panel chrome BEFORE cleaning, so the
+                # characters that make them look like a name cannot survive.
+                if _presence is not None and _presence.is_junk_panel_token(txt):
+                    continue
                 clean = re.sub(r'[^a-zA-Z0-9_\-\$]', '', txt)
                 if not clean or clean.lower() in IGNORED_USERS or clean.lower() in BOT_ALT_USERNAMES:
                     continue
                 if any(w in clean.lower() for w in ["camfrog", "room", "talk", "operator", "admin"]):
                     continue
                 rect = ctrl.rectangle()
-                if rect.left >= win_rect.left + int(win_rect.width() * 0.70):
+                if rect.left >= wl:
                     detected.add(clean)
-                    state.room_users_activity[clean.lower()] = now_t
     except Exception:
         pass
 
     with state.lock:
-        state.current_room_users.update(detected)
-        # Prune users not seen for > 30 minutes
-        expired = [u for u, t in state.room_users_activity.items() if now_t - t > 1800]
-        for exp in expired:
-            del state.room_users_activity[exp]
-            state.current_room_users = {u for u in state.current_room_users if u.lower() != exp}
+        room = state.current_focused_room
+        bucket = state.room_users_by_room.setdefault(room, {})
+        for name in detected:
+            bucket[name.lower()] = now_t
+        # Prune per room, so leaving one room never evicts someone who is still
+        # visible in another.
+        cutoff = now_t - 1800
+        for key in [k for k, t in bucket.items() if t < cutoff]:
+            del bucket[key]
+        state.room_users_activity = {k: v for k, v in bucket.items()}
+        state.current_room_users = {
+            k for k, t in bucket.items() if t >= cutoff}
         return set(state.current_room_users)
+
+
+def note_user_in_room(user: str, room: str = "") -> None:
+    """Records a user as present in a room, per room.
+
+    Every writer goes through here so a user seen in one room is never
+    automatically attributed to another. A chat line, a speaker detection and a
+    panel scan all mean "this person is in THIS room"."""
+    name = str(user or "").strip()
+    if not name or len(name) > 35:
+        return
+    if _presence is not None and _presence.is_junk_panel_token(name):
+        return
+    if name.lower() in IGNORED_USERS or name.lower() in BOT_ALT_USERNAMES:
+        return
+    now_t = time.time()
+    with state.lock:
+        target = room or state.current_focused_room
+        bucket = state.room_users_by_room.setdefault(target, {})
+        bucket[name.lower()] = now_t
+        if target == state.current_focused_room:
+            state.current_room_users.add(name.lower())
+            state.room_users_activity[name.lower()] = now_t
+
+
+def users_in_room(room: str) -> Set[str]:
+    """Everyone currently seen in a SPECIFIC room (never a cross-room union)."""
+    now_t = time.time()
+    with state.lock:
+        bucket = state.room_users_by_room.get(room or "", {})
+        return {k for k, t in bucket.items() if now_t - t <= 1800}
+
+
+def all_rooms_with_users() -> Dict[str, Set[str]]:
+    """Per-room membership snapshot: {room: {user, ...}}.
+
+    A user may appear under several rooms at once, which is correct - that is
+    what being in two rooms simultaneously means."""
+    now_t = time.time()
+    out: Dict[str, Set[str]] = {}
+    with state.lock:
+        for room, bucket in state.room_users_by_room.items():
+            live = {k for k, t in bucket.items() if now_t - t <= 1800}
+            if live:
+                out[room] = live
+    return out
+
 
 def refresh_presence_from_panel(win) -> Optional[Dict[str, Any]]:
     """Re-reads the right-hand roster panel and folds it into presence.json.
@@ -2176,7 +2270,12 @@ def refresh_presence_from_panel(win) -> Optional[Dict[str, Any]]:
         return None
     try:
         with state.lock:
+            # Known identities come from chat history AND every room we have
+            # seen, not just this one: a user who is in two rooms at once must
+            # still be recognised when their name shows on this room's panel.
             known = set(state.users.keys()) | set(state.current_room_users)
+            for bucket in state.room_users_by_room.values():
+                known |= set(bucket.keys())
         coords = None
         try:
             for fname in ("camfrog_coords.json", CONFIG_FILE):
@@ -3583,9 +3682,7 @@ def process_chat_message(username: str, timestamp: str, message: str):
     clean_norm = re.sub(r'[^a-zA-Z0-9_! ]', '', msg_lower).strip()
 
     # Register user into active room members
-    with state.lock:
-        state.current_room_users.add(clean_user)
-        state.room_users_activity[clean_user.lower()] = time.time()
+    note_user_in_room(clean_user)
 
     # Join/Quit notices carry no timestamp, so they are recorded from the PC
     # clock at observation time with exact_time=False, and the feed position is
@@ -3855,6 +3952,15 @@ Keep under 250 characters!
                     e.get("action", "?"), e.get("exact_time")))
         else:
             lines.append("[Presence] No arrivals/departures recorded yet.")
+        # Cross-room view. A user may be in several rooms at once, which is
+        # correct, so the rooms are listed separately rather than merged.
+        rooms_map = all_rooms_with_users()
+        if len(rooms_map) > 1:
+            lines.append(f"[Presence] Seen in {len(rooms_map)} rooms (users may "
+                         "be in more than one):")
+            for room_name, users in sorted(rooms_map.items()):
+                lines.append(f"   {room_name[:60]}: {len(users)} -> "
+                             + ", ".join(sorted(users))[:120])
         queue_or_send_paginated("Presence", lines, clean_user)
         return
 

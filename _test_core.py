@@ -571,6 +571,54 @@ def run_tests():
     check("roster: GIFTs toolbar label is not a user",
           not pres.looks_like_username("GIFTUsers2"))
 
+    # --- T25: clocks and chrome are never users -------------------------
+    # Live UIA exposed the room clock as a right-side control and the old scan
+    # reported it in !who as the user "813AM".
+    for clock in ("8:13 AM", "813AM", "21:33", "10:42", "1042PM", "07:05:31"):
+        check(f"presence: clock {clock!r} is not a user",
+              pres.is_junk_panel_token(clock), "accepted as a user")
+    check("presence: the GIFTs toolbar is not a user",
+          pres.is_junk_panel_token("GIFTUsers2"))
+    check("presence: a real username is not junk",
+          not pres.is_junk_panel_token("Shtickie"))
+    check("presence: $htickie is not junk",
+          not pres.is_junk_panel_token("$htickie"))
+    check("presence: KaeKae_Toad is not junk",
+          not pres.is_junk_panel_token("KaeKae_Toad"))
+
+    # --- T26: room membership is per room (real state) ------------------
+    import time as _time
+    st = kb.state
+    with st.lock:
+        st.room_users_by_room = {}
+        st.current_room_users = set()
+        st.current_focused_room = "RoomA"
+    kb.note_user_in_room("Alice")
+    with st.lock:
+        st.current_focused_room = "RoomB"
+    kb.note_user_in_room("Bob")
+    kb.note_user_in_room("Alice")          # Alice is in BOTH rooms
+    check("rooms: RoomA lists only its own users",
+          kb.users_in_room("RoomA") == {"alice"}, str(kb.users_in_room("RoomA")))
+    check("rooms: RoomB lists only its own users",
+          kb.users_in_room("RoomB") == {"alice", "bob"},
+          str(kb.users_in_room("RoomB")))
+    check("rooms: Alice is present in two rooms at once",
+          "alice" in kb.users_in_room("RoomA")
+          and "alice" in kb.users_in_room("RoomB"))
+    check("rooms: the snapshot separates rooms rather than merging them",
+          set(kb.all_rooms_with_users().keys()) == {"RoomA", "RoomB"},
+          str(kb.all_rooms_with_users()))
+    # A junk token must never enter through the shared writer either.
+    kb.note_user_in_room("8:13 AM")
+    kb.note_user_in_room("GIFTUsers2")
+    check("rooms: junk cannot enter via note_user_in_room",
+          kb.users_in_room("RoomB") == {"alice", "bob"},
+          str(kb.users_in_room("RoomB")))
+    with st.lock:
+        st.room_users_by_room = {}
+        st.current_room_users = set()
+
     print("\n" + "=" * 60)
     if FAILS:
         print(f"{len(FAILS)} FAILED: {FAILS}")
