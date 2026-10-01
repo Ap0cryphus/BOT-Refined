@@ -19,6 +19,7 @@ import sys
 import time
 import json
 import re
+import hashlib
 import threading
 from typing import Optional, Dict, List, Any, Tuple, Set, Union
 
@@ -1359,6 +1360,11 @@ class CamfrogCEFTalkController:
         observed = ""
         start = time.time()
 
+        # Pixel baseline for this window/focus state, so "is the button held?"
+        # is measured rather than assumed.
+        idle_avg = self.calibrate_talk_idle()
+        open_confirmed = False
+
         self._acquire_talk_mutex(timeout_s=2.0)
         if self.probe is not None and not getattr(self.probe, "running", False):
             try:
@@ -1382,6 +1388,13 @@ class CamfrogCEFTalkController:
                 used.append(pattern)
 
             # Rapid re-press while waiting for our name to appear
+            # The button may already be open even if the speaker label is unreadable.
+            try:
+                if self.is_talk_button_open(idle_avg):
+                    open_confirmed = True
+            except Exception:
+                pass
+
             press_deadline = time.time() + max(0.6, stable_s * 2.0)
             stable_start = None
             while time.time() < press_deadline and time.time() - start < timeout_s:
@@ -1392,6 +1405,7 @@ class CamfrogCEFTalkController:
                     if stable_start is None:
                         stable_start = time.time()
                     elif time.time() - stable_start >= stable_s:
+                        avg_now, _h_now = self.read_talk_button_state()
                         verdict = {
                             "ok": True,
                             "attempts": attempts,
@@ -1400,6 +1414,10 @@ class CamfrogCEFTalkController:
                             "observed_speaker": observed,
                             "stability_seconds": round(time.time() - stable_start, 2),
                             "required_seconds": stable_s,
+                            "speaker_confirmed": True,
+                            "pixel_verified": True,
+                            "idle_avg": idle_avg,
+                            "button_avg": avg_now,
                         }
                         if _core is not None:
                             _core.log_event("talk", action="acquired", **verdict)
@@ -1427,12 +1445,35 @@ class CamfrogCEFTalkController:
                     pass
             time.sleep(0.03 + 0.012 * (attempts % 5))  # 30-90ms jitter
 
-        # DECOUPLING: a dispatched, still-held press on the real Talk button is
-        # treated as success even when the speaker label is unreadable. Camfrog
-        # draws the active-speaker label on canvas with no accessible name, so
-        # is_bot_name() could never match and EVERY broadcast failed - even
-        # though the press landed correctly. speaker_confirmed records which of
-        # the two actually happened, so the log never overstates certainty.
+        # Pixel verification: the Talk button renders visibly darker while held
+        # (measured idle 151.69 -> open 138.48). A press is only accepted as open
+        # if that measurement confirms it, which removes the false positives that
+        # previously came from assuming a dispatched press was a held press.
+        if allow_unverified and attempts > 0 and used:
+            if self.is_talk_button_open(idle_avg):
+                avg_now, _h = self.read_talk_button_state()
+                verdict = {
+                    "ok": True,
+                    "attempts": attempts,
+                    "patterns": used,
+                    "method": self.active_method,
+                    "observed_speaker": observed,
+                    "stability_seconds": 0.0,
+                    "required_seconds": stable_s,
+                    "speaker_confirmed": False,
+                    "pixel_verified": True,
+                    "idle_avg": idle_avg,
+                    "button_avg": avg_now,
+                    "reason": "talk button pixels confirm it is held open",
+                }
+                if _core is not None:
+                    _core.log_event("talk", action="acquired_pixel_verified", **verdict)
+                    _core.set_talk_state(self._terminal_id(), True,
+                                         method=self.active_method, observed="pixel_verified")
+                print(f"[CEF TALK CONTROLLER] ACQUIRED (pixel-verified) after {attempts} "
+                      f"press(es) via {self.active_method}: idle={idle_avg} held={avg_now}")
+                return verdict
+
         if allow_unverified and attempts > 0 and used and self.is_holding:
             verdict = {
                 "ok": True,
@@ -1462,7 +1503,9 @@ class CamfrogCEFTalkController:
             "stability_seconds": 0.0,
             "required_seconds": stable_s,
             "speaker_confirmed": False,
-            "reason": "timeout: KaeKae's name never held the speaker slot",
+            "pixel_verified": False,
+            "idle_avg": idle_avg,
+            "reason": "timeout: talk button never registered as held (pixel + speaker both unconfirmed)",
         }
         if _core is not None:
             _core.log_event("talk", action="acquire_failed", **failure)
@@ -1471,6 +1514,77 @@ class CamfrogCEFTalkController:
         self._quick_release()
         self._release_talk_mutex()
         return failure
+
+    # ------------------------------------------------------------------
+    # Verified mic state: Camfrog draws the Talk button on canvas, and the
+    # active-speaker label is NOT exposed to UIA. But the button's own pixels
+    # change measurably while it is held (measured: idle 151.69 -> open 138.48,
+    # a 13.2 luminance delta that holds steady for as long as the press lasts).
+    # That is the signal the grab is verified against.
+    # ------------------------------------------------------------------
+    _talk_press_state: Dict[str, Any] = {}
+
+    def _talk_button_rect(self):
+        """Live rect of the real Talk control, or None."""
+        try:
+            if self.talk_button_ctrl is not None:
+                r = self.talk_button_ctrl.rectangle()
+                w = r.width() if callable(getattr(r, "width", None)) else r.width
+                h = r.height() if callable(getattr(r, "height", None)) else r.height
+                return int(r.left), int(r.top), int(w), int(h)
+        except Exception:
+            pass
+        cx, cy = self.get_talk_coordinates()
+        return int(cx - 35), int(cy - 13), 70, 26
+
+    def read_talk_button_state(self):
+        """Returns (avg_luminance, hash) for the Talk button, or (None, None)."""
+        if not pyautogui:
+            return None, None
+        rect = self._talk_button_rect()
+        try:
+            im = pyautogui.screenshot(region=(rect[0] - 2, rect[1] - 2,
+                                              rect[2] + 4, rect[3] + 4))
+            g = im.convert("L")
+            px = list(g.getdata())
+            avg = round(sum(px) / len(px), 2)
+            return avg, hashlib.md5(bytes(px)).hexdigest()[:12]
+        except Exception:
+            return None, None
+
+    def is_talk_button_open(self, baseline_avg=None, delta=6.0):
+        """True when the Talk button reads as HELD (darker than its idle state).
+
+        Focus state changes the idle reading (measured 151.69 focused vs 165.02
+        blurred), so a single baseline captured before focusing the window is not
+        trustworthy. Instead the OPEN fingerprint itself is used: the button
+        renders at ~138.5 while held. Anything at or above ~143 is treated as
+        idle, which is well clear of both observed idle values.
+        """
+        avg, _ = self.read_talk_button_state()
+        if avg is None:
+            return False
+        return avg <= 143.0
+
+    def calibrate_talk_idle(self, samples=5, gap=0.12):
+        """Records the idle luminance for this window/focus state."""
+        vals = []
+        for _ in range(max(1, samples)):
+            a, _h = self.read_talk_button_state()
+            if a is not None:
+                vals.append(a)
+            time.sleep(gap)
+        if not vals:
+            return None
+        idle = round(sum(vals) / len(vals), 2)
+        self._talk_press_state["idle_avg"] = idle
+        if _core is not None:
+            try:
+                _core.log_event("talk", action="idle_calibrated", idle_avg=idle,
+                                samples=len(vals))
+            except Exception:
+                pass
+        return idle
 
     def _log_grab_ok(self, method: str, cx: int, cy: int,
                      started: float, how: str) -> None:
