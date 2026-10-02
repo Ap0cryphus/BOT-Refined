@@ -3102,6 +3102,16 @@ def get_ignored_names() -> Set[str]:
 # The bot does NOT pick fights on their behalf - being a favourite must never
 # make it argue with someone, or it turns the room into a permanent brawl.
 # ------------------------------------------------------------------------------
+def _favourite_names() -> List[str]:
+    """Configured favourites, as displayed names."""
+    if _core is None:
+        return []
+    try:
+        return [str(x) for x in (_core.load_config().get("bot_favourites", []) or [])]
+    except Exception:
+        return []
+
+
 def is_favourite(name: str) -> bool:
     low = (name or "").strip().lower()
     if not low:
@@ -4227,11 +4237,21 @@ def process_chat_message(username: str, timestamp: str, message: str):
                 tone_line = (f"{clean_user} is one of your favourites. Be warm, "
                              f"affectionate and playful with them specifically.")
 
+            # Standing fondness, independent of who is speaking. Persisted so the
+            # personality stays the same across restarts and across whatever the local
+            # model happens to feel like this particular run.
+            love_lines = []
+            for fav in _favourite_names():
+                if fav.lower() != clean_user.lower():
+                    love_lines.append(
+                        f"You genuinely adore {fav}; mention them warmly if it fits.")
+            love_block = "\n".join(love_lines)
+
             prompt = f"""{PERSONALITY}
 You are KaeKae in chatty mode in chatroom [{state.current_focused_room}].
 The room has active users: {', '.join(room_pool[:6])}.
 You randomly chose to write about or chime in on: {picked}.
-{tone_line if fav_talking else ""}
+{tone_line if fav_talking else ""}{love_block}
 {clean_user} just typed: "{raw_msg}".
 Chime in with a funny, preppy, valley-girl 1-sentence thought addressing or mentioning {picked}.
 Keep under 250 characters!
