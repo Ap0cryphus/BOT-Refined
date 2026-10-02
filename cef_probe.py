@@ -160,6 +160,21 @@ def is_unknown_speaker(name: str) -> bool:
         return True
     return str(name).strip().lower() in IGNORED_NAMES
 
+def _clean_speaker_label(raw: str) -> str:
+    """Trim trailing UI text from a bubble read.
+
+    The bubble can read back with room chrome glued on - observed
+    'jordanjroc (Po' - and a stray suffix breaks the strict identity match that
+    decides whether the bot interrupts a human. Keep the leading token that
+    actually looks like a username."""
+    txt = str(raw or "").strip()
+    if not txt:
+        return ""
+    txt = txt.split("(")[0].strip()
+    m = re.match(r"^[A-Za-z0-9_$\.\-]{2,24}", txt)
+    return m.group(0) if m else txt[:24]
+
+
 class CamfrogCEFProbe:
     """
     Decoupled background probe that monitors Camfrog's CEF processes to
@@ -602,9 +617,18 @@ class CamfrogCEFProbe:
             # '*Mephobia*'): UIA drops out for one frame exactly when the
             # bubble is half-drawn, and OCR then reads the half-drawn pixels.
             prev = getattr(self, "_sp_confirmed", None)
-            if prev and prev != raw:
-                return prev
-            self._sp_confirmed = raw
+            prev_name, prev_at = (prev if isinstance(prev, tuple) else (prev, 0.0))
+            if prev_name and prev_name != raw:
+                # Hold the previous name ONLY across a single mid-repaint frame.
+                # Previously this branch returned prev forever, so one stale OCR
+                # value latched permanently: the native control reports a slightly
+                # different string every frame, prev != raw was always true, and
+                # the name never updated again (every transcript became the one
+                # user the bubble happened to show when it first settled).
+                if (time.time() - float(prev_at or 0.0)) < 1.5:
+                    return prev_name
+            raw = _clean_speaker_label(raw)
+            self._sp_confirmed = (raw, time.time())
             return raw
         # Only reach for pixels when the native control reports nothing at
         # all - never merely because it is mid-transition.

@@ -55,7 +55,11 @@ except Exception:
 AUDIO_OUTPUT_DEVICE = get_configured_output_device()
 
 # Triggers are not remembered between restarts; clear once per boot.
-core.reset_transient_state()
+if core is not None:
+    try:
+        core.reset_transient_state()
+    except Exception as _e:
+        print(f"[AUDIO WORKER] session reset skipped: {_e}")
 
 print(f"  Target Audio Device  : '{AUDIO_OUTPUT_DEVICE}'")
 if core is not None:
