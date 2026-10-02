@@ -3365,9 +3365,38 @@ def is_repetitive(answer: str) -> bool:
     return False
 
 def search_web_summary(query: str) -> str:
-    """Performs web query via DuckDuckGo Instant Answer API for !idk synthesis."""
+    """Web lookup for !ask / !idk synthesis.
+
+    Wikipedia first: its API is stable, keyless and answers the wide factual
+    questions people actually type into a chatroom. DuckDuckGo's Instant
+    Answer API is the fallback - it only covers known entities, so it returns
+    nothing for most real questions.
+    """
+    q = (query or "").strip()
+    if not q:
+        return ""
+    # 1. Wikipedia - best coverage for general questions. Retried because a
+    # single slow response otherwise reads to the room as "no answer".
+    for _attempt in range(2):
+        try:
+            r = requests.get(
+                "https://en.wikipedia.org/w/api.php",
+                params={"action": "query", "list": "search", "srsearch": q,
+                        "format": "json", "srlimit": 1},
+                timeout=6,
+                headers={"User-Agent": "KaeKaeBot/1.0 (Camfrog chat helper)"}).json()
+            hits = (r.get("query") or {}).get("search") or []
+            if hits:
+                title = hits[0].get("title", "")
+                snippet = re.sub(r"<[^>]+>", "", hits[0].get("snippet") or "")
+                if title:
+                    return f"{title}: {snippet}"[:400]
+            break
+        except Exception:
+            time.sleep(0.4)
+    # 2. DuckDuckGo instant answer (entities/definitions).
     try:
-        url = f"https://api.duckduckgo.com/?q={requests.utils.quote(query)}&format=json&no_html=1&skip_disambig=1"
+        url = f"https://api.duckduckgo.com/?q={requests.utils.quote(q)}&format=json&no_html=1&skip_disambig=1"
         res = requests.get(url, timeout=5).json()
         abstract = res.get("AbstractText", "")
         if abstract:
@@ -3378,6 +3407,66 @@ def search_web_summary(query: str) -> str:
     except Exception:
         pass
     return ""
+
+
+# Rate limiting for !ask. Anyone in the room can call it, and each call costs a
+# web request plus a local LLM run, so it is throttled per user AND globally.
+_ASK_COOLDOWN_S = 25.0
+_ASK_GLOBAL_COOLDOWN_S = 8.0
+_ask_last_by_user: Dict[str, float] = {}
+_ask_last_global: float = 0.0
+
+
+def ask_rate_limited(user: str) -> str:
+    """Returns "" when allowed, otherwise the reason to tell the user."""
+    now = time.time()
+    key = (user or "").lower()
+    last = _ask_last_by_user.get(key, 0.0)
+    if now - last < _ASK_COOLDOWN_S:
+        return f"easy on the research - ask me again in {int(_ASK_COOLDOWN_S - (now - last))}s"
+    if now - _ask_last_global < _ASK_GLOBAL_COOLDOWN_S:
+        return "someone else is mid-search, hold on a sec"
+    return ""
+
+
+def handle_ask(clean_user: str, question: str) -> None:
+    """!ask <question> - open to the whole room, rate limited."""
+    global _ask_last_global
+    q = (question or "").strip()
+    if len(q) < 3:
+        send_chat_message(f"@{clean_user}, ask me something - !ask <question>", override_mute=True)
+        return
+
+    blocked = ask_rate_limited(clean_user)
+    if blocked:
+        send_chat_message(f"@{clean_user}, {blocked}.", override_mute=True)
+        return
+
+    _ask_last_by_user[(clean_user or "").lower()] = time.time()
+    _ask_last_global = time.time()
+    send_chat_message(f"@{clean_user}, looking that up...", override_mute=True)
+
+    facts = search_web_summary(q)
+    if not facts:
+        prompt = (f"{PERSONALITY}\n"
+                  f"{clean_user} in a Camfrog room asked: \"{q}\". I could not find "
+                  f"anything online. Reply in ONE short, in-character sentence that "
+                  f"says I have no info. Under 160 characters.")
+        send_chat_message(query_local_llm(prompt)[:400])
+        return
+
+    prompt = (f"{PERSONALITY}\n"
+              f"{clean_user} in a Camfrog room asked: \"{q}\".\n"
+              f"Search result: {facts}\n\n"
+              f"Answer using ONLY that result, in KaeKae's voice: funny, preppy, "
+              f"valley-girl. Be accurate over being funny. Max 3 sentences, "
+              f"under 350 characters.")
+    answer = query_local_llm(prompt)
+    print(f"[ASK] {clean_user} asked {q!r} -> {answer[:80]!r}")
+    send_chat_message(f"@{clean_user}, {answer}"[:500])
+
+
+
 
 def parse_duration_seconds(text: str) -> Tuple[int, str]:
     """
@@ -4316,6 +4405,12 @@ Keep under 250 characters!
             send_chat_message(f"@{clean_user}, available tones: {opts}", override_mute=True)
             return
 
+    # 5z. !ask <question> - OPEN TO THE ROOM (rate limited inside the handler)
+    m_ask = re.match(r'^!ask\s+(.{3,200})$', raw_msg, re.IGNORECASE)
+    if m_ask:
+        handle_ask(clean_user, m_ask.group(1))
+        return
+
     # 6z. Favourites (Authorized Only): people the bot is fond of
     m_fav_add = re.match(r'^!favou?rite\s+([a-zA-Z0-9_$\-\.]{2,24})$', raw_msg, re.IGNORECASE)
     if m_fav_add:
@@ -4919,7 +5014,8 @@ def print_triggers_list():
   !shutup                  - Mute spontaneous chatter
 
 [Temperament & Continuous 1-Minute Diss System]
-  !diss [username]         - Roasts target user (or room). DEPLOYS CONTINUOUS 1-MINUTE INTERVAL ROASTS!
+  !ask <question>         - Anyone can ask; I search the web and answer (rate limited)
+    !diss [username]         - Roasts target user (or room). DEPLOYS CONTINUOUS 1-MINUTE INTERVAL ROASTS!
   !chill / chill           - Stop the diss function completely and restore chill mode
   !calm / calm             - Reset temperament to normal
   !tone <temperament>      - Set personality temperament:
