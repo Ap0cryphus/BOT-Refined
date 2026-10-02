@@ -134,6 +134,19 @@ def main() -> int:
     # audio-flow indicator. OCR only runs once flow is actually active, so the
     # expensive identity check is paid on the win path, not every iteration.
     if args.fast:
+        # AUDIO FIRST, off the mic. Camfrog's Talk is push-to-talk: if we grab
+        # first and then render, the mic is held hostage for the whole ~18s
+        # synthesis, and the room hears a truncated clip.
+        pre_rendered = False
+        if not args.no_audio:
+            try:
+                eng = cp.synthesize_speech_to_wav(
+                    args.phrase, "temp_say_broadcast.wav", voice=args.voice,
+                    rate="+12%", pitch="+16Hz", persona="valley")
+                pre_rendered = bool(eng)
+                log(f"pre-rendered speech ({eng}) BEFORE grabbing the mic")
+            except Exception as e:
+                log(f"pre-render failed: {e}")
         tc.set_press_rate(args.hold_ms, args.gap_ms, args.jitter)
         log("press rate: hold=%.0fms gap=%.0fms (max ~%.1f presses/sec)"
             % (args.hold_ms, args.gap_ms,
@@ -144,6 +157,7 @@ def main() -> int:
         polls = 0
         flow_presses = 0
         win_at = None
+        _th = None
         t0 = time.time()
         while time.time() - t0 < args.wait and flow_presses < args.attempts * 40:
             # Stop fighting when there is nothing to fight for. If nobody is
@@ -163,7 +177,6 @@ def main() -> int:
                     # lands, so the audio must start FIRST and the press
                     # second. Verified: audio-then-press owns 100%,
                     # press-then-audio owns 0%.
-                    _th = None
                     if not args.no_audio:
                         import threading as _t
                         _th = _t.Thread(target=lambda: cp_module.play_wav_to_virtual_cable(
@@ -210,6 +223,26 @@ def main() -> int:
         }
         if held:
             log("GRAB OK (fast) - %d presses in %.2fs" % (flow_presses, win_at))
+            # HOLD through the whole clip. Releasing the moment we confirm the
+            # win is what cut the audio short: the push-to-talk button releases
+            # the room's audio the instant the mouse comes up.
+            if _th is not None:
+                try:
+                    _th.join(timeout=6)
+                except Exception:
+                    pass
+            if pre_rendered:
+                try:
+                    import wave as _w
+                    with _w.open("temp_say_broadcast.wav", "rb") as _wf:
+                        dur = _wf.getnframes() / float(_wf.getframerate() or 24000)
+                    log("speaking %.2fs while HOLDING the mic..." % dur)
+                    cp_module.play_wav_to_virtual_cable(
+                        "temp_say_broadcast.wav", cp_module.get_configured_output_device())
+                    time.sleep(0.35)   # trailing cushion so the last syllable lands
+                    result["audio_seconds"] = round(dur, 2)
+                except Exception as e:
+                    log(f"speech failed: {e}")
         else:
             log("GRAB FAILED (fast) after %d presses" % flow_presses)
         tc.release_mic()
