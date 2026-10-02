@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "id": "speech_20261001T173918_776176",
+    "clip_path": "audio_clips\\20261001T173918_433204.wav",
+    "speaker": "tricon",
+    "room": "Players__Lounge, Topic: HAPPY BIRTHDAY MISS MONTYYYYYYYYYY WE LUV YOU!!! xx",
+    "timestamp": "(10/01I17:39:18)",
+    "created_at": 1790901558.7761765,
+    "peak": 23197,
+    "tone": "neutral",
+    "acoustic_features": {
+      "rms": 0.0568,
+      "zcr": 0.0954,
+      "spectral_centroid": 1326.4,
+      "pitch_hz": 101.9
+    },
+    "status": "pending",
+    "retry_count": 0
+  }
+]

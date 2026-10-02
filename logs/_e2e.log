@@ -1,0 +1,38 @@
+attached=True coords=(1326, 565)
+
+--- 1. pre-render OFF the mic (queue-style) ---
+
+********
+Warning: flash-attn is not installed. Will only run the manual PyTorch version. Please install flash-attn for faster inference.
+********
+ 
+[QWEN TTS] Loading Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice (first use)...
+[QWEN TTS] Model ready.
+[QWEN TTS] Synthesized 'vivian' -> broadcast_cache\27f0927ed7d3d891.wav (4.00s @ 24000Hz)
+  ready=True engine=qwen duration=4.0s in 26.7s
+
+--- 2. queue it the way chat_worker would ---
+  popped id=3d26ceaff894 attempts=None
+  requeued and popped again: 'KaeKae here, testing the new queued broa'
+
+--- 3. speak via the new production path ---
+[CEF TALK CONTROLLER] Waiting up to 15s for 1.0s of silence: "KaeKae here, testing the new queued broadcast path."...
+[CEF TALK CONTROLLER] Mic quiet for 1.0s (6 samples, 1.3s) - safe to grab.
+[AUDIO ROUTE] Broadcasting to #20 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 18009/32767)...
+[AUDIO ROUTE] Broadcast completed cleanly through 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]'.
+[AUDIO ROUTE] Broadcasting to #20 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 18009/32767)...
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[CEF TALK CONTROLLER] Broadcast ok=True acquired=True fraction=100% (4.0s/4.0s) reason=''
+
+=== RESULT (wall 7.8s) ===
+  ok                     True
+  acquired               True
+  playback_ok            True
+  observed_speaker       KaeKaeToad
+  method                 win32_fast
+  intended_duration_s    4.0
+  heard_duration_s       4.0
+  audio_fraction         1.0
+  quiet_waited_s         1.29
+  reason                 

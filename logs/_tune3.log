@@ -1,0 +1,301 @@
+[GRAB TEST] attach=True coords=(1331, 565) ctrl=yes cef_hwnd=399994
+[GRAB TEST] idle baseline avg=138.48
+[GRAB TEST] press rate: hold=60ms gap=110ms (max ~5.9 presses/sec)
+[GRAB TEST] FAST MODE: re-pressing continuously, checking flow every poll
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[GRAB TEST]   after hold: speaker='' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST] GRAB FAILED (fast) after 70 presses
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+{
+ "held": false,
+ "method": "",
+ "tries": 70,
+ "fast_mode": true,
+ "presses": 70,
+ "time_to_grab_s": 30.1,
+ "coords": [
+  1331,
+  565
+ ],
+ "released": true,
+ "ok": false
+}

@@ -1,0 +1,10 @@
+[GRAB TEST] attach=True coords=(1331, 565) ctrl=yes cef_hwnd=399994
+[GRAB TEST] idle baseline avg=194.35
+[GRAB TEST] press rate: hold=60ms gap=110ms (max ~5.9 presses/sec)
+[GRAB TEST] FAST MODE: re-pressing continuously, checking flow every poll
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[AUDIO ROUTE] Broadcasting to #17 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 13677/32767)...
+[GRAB TEST]   after hold: speaker='xjordanjroc' owned=False
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING

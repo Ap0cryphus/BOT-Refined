@@ -1,0 +1,58 @@
+[GRAB TEST] attach=True coords=(1331, 565) ctrl=yes cef_hwnd=399994
+[GRAB TEST] idle baseline avg=194.35
+[GRAB TEST] attempt 1: mouse_hold -> not open (button avg=194.35, open needs <=143) at 0.53s
+[GRAB TEST] attempt 2: mouse_hold -> not open (button avg=194.35, open needs <=143) at 1.06s
+[GRAB TEST] attempt 3: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 1.29s
+[GRAB TEST] attempt 4: uia -> not open (button avg=194.35, open needs <=143) at 1.71s
+[GRAB TEST] attempt 5: mouse_hold -> not open (button avg=194.35, open needs <=143) at 2.23s
+[GRAB TEST] attempt 6: mouse_hold -> not open (button avg=194.35, open needs <=143) at 2.76s
+[GRAB TEST] attempt 7: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 3.00s
+[GRAB TEST] attempt 8: uia -> not open (button avg=194.35, open needs <=143) at 3.40s
+[GRAB TEST] attempt 9: mouse_hold -> not open (button avg=194.35, open needs <=143) at 3.92s
+[GRAB TEST] attempt 10: mouse_hold -> not open (button avg=194.35, open needs <=143) at 4.44s
+[GRAB TEST] attempt 11: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 4.67s
+[GRAB TEST] attempt 12: uia -> not open (button avg=194.35, open needs <=143) at 5.09s
+[GRAB TEST] attempt 13: mouse_hold -> not open (button avg=194.35, open needs <=143) at 5.61s
+[GRAB TEST] attempt 14: mouse_hold -> not open (button avg=194.35, open needs <=143) at 6.12s
+[GRAB TEST] attempt 15: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 6.36s
+[GRAB TEST] attempt 16: uia -> not open (button avg=194.35, open needs <=143) at 6.85s
+[GRAB TEST] attempt 17: mouse_hold -> not open (button avg=194.35, open needs <=143) at 7.37s
+[GRAB TEST] attempt 18: mouse_hold -> not open (button avg=194.35, open needs <=143) at 7.91s
+[GRAB TEST] attempt 19: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 8.14s
+[GRAB TEST] attempt 20: uia -> not open (button avg=194.35, open needs <=143) at 8.54s
+[GRAB TEST] attempt 21: mouse_hold -> not open (button avg=194.35, open needs <=143) at 9.06s
+[GRAB TEST] attempt 22: mouse_hold -> not open (button avg=194.35, open needs <=143) at 9.59s
+[GRAB TEST] attempt 23: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 9.81s
+[GRAB TEST] attempt 24: uia -> not open (button avg=194.35, open needs <=143) at 10.20s
+[GRAB TEST] attempt 25: mouse_hold -> not open (button avg=194.35, open needs <=143) at 10.72s
+[GRAB TEST] attempt 26: mouse_hold -> not open (button avg=194.35, open needs <=143) at 11.25s
+[GRAB TEST] attempt 27: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 11.55s
+[GRAB TEST] attempt 28: uia -> not open (button avg=194.35, open needs <=143) at 11.96s
+[GRAB TEST] attempt 29: mouse_hold -> not open (button avg=194.35, open needs <=143) at 12.48s
+[GRAB TEST] attempt 30: mouse_hold -> not open (button avg=194.35, open needs <=143) at 13.03s
+[GRAB TEST] attempt 31: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 13.26s
+[GRAB TEST] attempt 32: uia -> not open (button avg=151.69, open needs <=143) at 13.66s
+[GRAB TEST] attempt 33: mouse_hold -> not open (button avg=194.35, open needs <=143) at 14.18s
+[GRAB TEST] attempt 34: mouse_hold -> not open (button avg=194.35, open needs <=143) at 14.71s
+[GRAB TEST] attempt 35: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 14.94s
+[GRAB TEST] attempt 36: uia -> not open (button avg=194.35, open needs <=143) at 15.35s
+[GRAB TEST] attempt 37: mouse_hold -> not open (button avg=194.35, open needs <=143) at 15.88s
+[GRAB TEST] attempt 38: mouse_hold -> not open (button avg=194.35, open needs <=143) at 16.42s
+[GRAB TEST] attempt 39: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 16.64s
+[GRAB TEST] attempt 40: uia -> not open (button avg=194.35, open needs <=143) at 17.04s
+[GRAB TEST] GRAB FAILED - mic never stuck. Releasing any partial hold.
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+{
+ "held": false,
+ "method": "",
+ "tries": 40,
+ "idle_avg": 194.35,
+ "time_to_grab_s": 17.1,
+ "coords": [
+  1331,
+  565
+ ],
+ "phrase": "",
+ "ok": false
+}

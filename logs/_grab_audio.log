@@ -1,0 +1,32 @@
+[GRAB TEST] attach=True coords=(1331, 565) ctrl=yes cef_hwnd=399994
+[GRAB TEST] attempt 1: uia -> HELD via uia (speaker='Unknown speaker')
+[GRAB TEST] GRAB OK via uia after 1 attempt(s); mic is open.
+
+********
+Warning: flash-attn is not installed. Will only run the manual PyTorch version. Please install flash-attn for faster inference.
+********
+ 
+[QWEN TTS] Loading Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice (first use)...
+[QWEN TTS] Model ready.
+[QWEN TTS] Synthesized 'vivian' -> temp_say_broadcast.wav (1.92s @ 24000Hz)
+[GRAB TEST] TTS engine=qwen
+[AUDIO ROUTE] Broadcasting to #20 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 15002/32767)...
+[AUDIO ROUTE] Broadcast completed cleanly through 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]'.
+[GRAB TEST] playback_ok=True via CABLE Input (VB-Audio Virtual Cable)
+[GRAB TEST] releasing mic...
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+[GRAB TEST] released=True, holding now=False
+{
+ "held": true,
+ "method": "uia",
+ "tries": 1,
+ "coords": [
+  1331,
+  565
+ ],
+ "phrase": "Hello_motherfuckers",
+ "playback_ok": true,
+ "released": true,
+ "ok": true
+}

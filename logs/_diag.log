@@ -1,0 +1,89 @@
+======================================================================
+MIC DIAGNOSTICS - single-mic room only
+======================================================================
+  attach=True coords=(1326, 565) ctrl_found=True
+  audio device: CABLE Input (VB-Audio Virtual Cable)
+
+----------------------------------------------------------------------
+
+  PHASE 0 - stay SILENT, measuring idle baseline
+    ...5    ...4    ...3    ...2    ...1    GO
+  0 IDLE (silent)
+     samples=20  flow median=66.9  range=65.0-73.4
+     bubble lead='Shtickie'  ours-led=0%
+     -> PASS - bot correctly stayed off
+
+----------------------------------------------------------------------
+
+  PHASE 1 - ADMIN: hold your mic and speak for 5s (bot does nothing)
+    ...5    ...4    ...3    ...2    ...1    GO
+  1 HUMAN speaking
+     samples=20  flow median=66.0  range=58.7-67.0
+     bubble lead='Shtickie'  ours-led=0%
+     -> PASS - bot correctly stayed off
+
+----------------------------------------------------------------------
+
+  PHASE 2 - bot holds the mic SILENTLY for 4s (no audio)
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+  2 BOT silent hold
+     samples=16  flow median=113.2  range=112.7-113.5
+     bubble lead='KaeKaeToad'  ours-led=100%
+     -> PASS - bot owned the mic
+
+----------------------------------------------------------------------
+
+  PHASE 3 - bot holds AND plays audio for 6s. Listen.
+
+********
+Warning: flash-attn is not installed. Will only run the manual PyTorch version. Please install flash-attn for faster inference.
+********
+ 
+[QWEN TTS] Loading Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice (first use)...
+[QWEN TTS] Model ready.
+[QWEN TTS] Synthesized 'vivian' -> temp_say_broadcast.wav (4.72s @ 24000Hz)
+[AUDIO ROUTE] Broadcasting to #20 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 14534/32767)...
+[AUDIO ROUTE] Broadcast completed cleanly through 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]'.
+[AUDIO ROUTE] Broadcasting to #20 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 14534/32767)...
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+  3 BOT + AUDIO
+     samples=23  flow median=66.6  range=60.3-73.4
+     bubble lead='Shtickie'  ours-led=0%
+     -> FAIL - bot never led the bubble
+
+----------------------------------------------------------------------
+
+  PHASE 4 - BATTLE: ADMIN hold your mic and speak. The bot will fight you for it.
+    ...5    ...4    ...3    ...2[AUDIO ROUTE] Broadcast completed cleanly through 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]'.
+    ...1    GO
+[AUDIO ROUTE] Broadcasting to #20 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 14534/32767)...
+[AUDIO ROUTE] Broadcast completed cleanly through 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]'.
+[AUDIO ROUTE] Broadcasting to #20 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 14534/32767)...
+[AUDIO ROUTE] Broadcast completed cleanly through 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]'.
+[AUDIO ROUTE] Broadcasting to #20 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 14534/32767)...
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+  4 BATTLE vs admin
+     samples=49  flow median=66.6  range=58.3-73.4
+     bubble lead='Shtickie'  ours-led=0%
+     -> FAIL - bot never led the bubble
+
+======================================================================
+SUMMARY
+======================================================================
+  0 IDLE (silent)        flow_med=66.9    ours=0   %  PASS - bot correctly stayed off
+  1 HUMAN speaking       flow_med=66.0    ours=0   %  PASS - bot correctly stayed off
+  2 BOT silent hold      flow_med=113.2   ours=100 %  PASS - bot owned the mic
+  3 BOT + AUDIO          flow_med=66.6    ours=0   %  FAIL - bot never led the bubble
+  4 BATTLE vs admin      flow_med=66.6    ours=0   %  FAIL - bot never led the bubble
+
+  separation check:
+    idle  = 66.9
+    human = 66.0
+    ours  = 66.6
+
+  NOTE: if idle/human/ours are indistinguishable, the flow
+  indicator cannot gate ownership - the name bubble must.
+[AUDIO ROUTE] Broadcast completed cleanly through 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]'.

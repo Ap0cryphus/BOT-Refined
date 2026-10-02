@@ -1,0 +1,34 @@
+[GRAB TEST] attach=True coords=(1331, 565) ctrl=yes cef_hwnd=399994
+[GRAB TEST] idle baseline avg=170.89
+[GRAB TEST] attempt 1: mouse_hold -> not open (button avg=194.35, open needs <=143) at 1.19s
+[GRAB TEST] attempt 2: mouse_hold -> not open (button avg=194.35, open needs <=143) at 2.46s
+[GRAB TEST] attempt 3: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 3.44s
+[GRAB TEST] attempt 4: uia -> not open (button avg=194.35, open needs <=143) at 4.61s
+[GRAB TEST] attempt 5: mouse_hold -> not open (button avg=194.35, open needs <=143) at 5.86s
+[GRAB TEST] attempt 6: mouse_hold -> not open (button avg=194.35, open needs <=143) at 7.04s
+[GRAB TEST] attempt 7: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 8.03s
+[GRAB TEST] attempt 8: uia -> not open (button avg=194.35, open needs <=143) at 9.16s
+[GRAB TEST] attempt 9: mouse_hold -> not open (button avg=194.35, open needs <=143) at 10.48s
+[GRAB TEST] attempt 10: mouse_hold -> not open (button avg=194.35, open needs <=143) at 11.71s
+[GRAB TEST] attempt 11: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 12.60s
+[GRAB TEST] attempt 12: uia -> not open (button avg=194.35, open needs <=143) at 13.76s
+[GRAB TEST] attempt 13: mouse_hold -> not open (button avg=194.35, open needs <=143) at 15.01s
+[GRAB TEST] attempt 14: mouse_hold -> not open (button avg=194.35, open needs <=143) at 16.31s
+[GRAB TEST] attempt 15: cef_hwnd -> not open (button avg=194.35, open needs <=143) at 17.31s
+[GRAB TEST] attempt 16: uia -> not open (button avg=194.35, open needs <=143) at 18.42s
+[GRAB TEST] GRAB FAILED - mic never stuck. Releasing any partial hold.
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+{
+ "held": false,
+ "method": "",
+ "tries": 16,
+ "idle_avg": 170.89,
+ "time_to_grab_s": 18.53,
+ "coords": [
+  1331,
+  565
+ ],
+ "phrase": "",
+ "ok": false
+}

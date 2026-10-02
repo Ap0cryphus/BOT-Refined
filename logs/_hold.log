@@ -1,0 +1,45 @@
+[GRAB TEST] attach=True coords=(1326, 1182) ctrl=yes cef_hwnd=399994
+[GRAB TEST] idle baseline avg=165.02
+
+********
+Warning: flash-attn is not installed. Will only run the manual PyTorch version. Please install flash-attn for faster inference.
+********
+ 
+[QWEN TTS] Loading Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice (first use)...
+[QWEN TTS] Model ready.
+[QWEN TTS] Synthesized 'ono_anna' [English] -> temp_say_broadcast.wav (4.00s @ 24000Hz)
+[GRAB TEST] pre-rendered speech (qwen) BEFORE grabbing the mic
+[GRAB TEST] press rate: hold=60ms gap=110ms (max ~5.9 presses/sec)
+[GRAB TEST] FAST MODE: re-pressing continuously, checking flow every poll
+[GRAB TEST]   flow=68.3  speaker='GanjPop'  owned=False  (presses=3 t=0.82s)
+[GRAB TEST]   flow=66.0  speaker='GanjPop'  owned=False  (presses=6 t=1.53s)
+[GRAB TEST]   flow=66.9  speaker='GanjPop'  owned=False  (presses=9 t=2.27s)
+[GRAB TEST]   flow=73.4  speaker='GanjPop'  owned=False  (presses=12 t=3.02s)
+[GRAB TEST]   flow=66.9  speaker='GanjPop'  owned=False  (presses=15 t=3.80s)
+[GRAB TEST]   flow=65.0  speaker='GanjPop'  owned=False  (presses=18 t=4.54s)
+[GRAB TEST]   flow=73.4  speaker='GanjPop'  owned=False  (presses=21 t=5.28s)
+[GRAB TEST]   mic is FREE (idle) - pressing and HOLDING
+[AUDIO ROUTE] Broadcasting to #17 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 8909/32767)...
+[GRAB TEST]   after hold: speaker='KaeKaeToad' owned=True
+[GRAB TEST] GRAB OK (fast) - 23 presses in 6.29s
+[AUDIO ROUTE] Broadcast completed cleanly through 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]'.
+[GRAB TEST] speaking 4.00s while HOLDING the mic...
+[AUDIO ROUTE] Broadcasting to #17 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 8909/32767)...
+[AUDIO ROUTE] Broadcast completed cleanly through 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]'.
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+{
+ "held": true,
+ "method": "win32_fast",
+ "tries": 23,
+ "fast_mode": true,
+ "presses": 23,
+ "time_to_grab_s": 6.29,
+ "coords": [
+  1326,
+  1182
+ ],
+ "audio_seconds": 4.0,
+ "released": true,
+ "ok": true
+}

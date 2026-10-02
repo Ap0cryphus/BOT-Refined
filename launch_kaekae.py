@@ -26,30 +26,45 @@ def main():
     py_exe = sys.executable
 
     if sys.platform == "win32":
-        # Launch Terminal 1 (Chat Worker)
-        print("[1/3] Spawning Terminal 1: Chat Worker...")
-        subprocess.Popen(
-            f'start "KaeKae Chat Worker [Term 1]" cmd /k ""{py_exe}" chat_worker.py"',
-            shell=True
-        )
-        time.sleep(1.2)
+        # CREATE_NEW_CONSOLE instead of `start "title" cmd /k "..."`.
+        # The shell form depends on nested quote balancing and silently failed
+        # to spawn Terminal 2 while T1/T3 came up fine, so the failure looked
+        # like "T2 closes on its own". Passing an argv list to Popen removes
+        # the shell from the path entirely.
+        flag = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+        workers = [
+            ("Terminal 1", "chat_worker.py", "Chat Worker (Text & Moderation Engine)"),
+            ("Terminal 2", "audio_worker.py", "Audio Worker (Microphone & Talk Controller)"),
+            ("Terminal 3", "master_dashboard.py", "Master Dashboard (Live HUD & Controls)"),
+        ]
+        started = []
+        for idx, (label, script, desc) in enumerate(workers, 1):
+            print(f"[{idx}/3] Spawning {label}: {desc} ...")
+            try:
+                proc = subprocess.Popen([py_exe, script], creationflags=flag)
+                started.append((label, script, proc))
+            except Exception as e:
+                print(f"    !! FAILED to spawn {label}: {e}")
+            time.sleep(1.2)
 
-        # Launch Terminal 2 (Audio Worker)
-        print("[2/3] Spawning Terminal 2: Audio Worker...")
-        subprocess.Popen(
-            f'start "KaeKae Audio Worker [Term 2]" cmd /k ""{py_exe}" audio_worker.py"',
-            shell=True
-        )
-        time.sleep(1.2)
-
-        # Launch Terminal 3 (Master Dashboard)
-        print("[3/3] Spawning Terminal 3: Master Dashboard...")
-        subprocess.Popen(
-            f'start "KaeKae Master Dashboard [Term 3]" cmd /k ""{py_exe}" master_dashboard.py"',
-            shell=True
-        )
-
-        print("\n[SUCCESS] All 3 terminals launched successfully!")
+        # Verify each one is still alive a few seconds later. A worker that
+        # dies during import looks identical to one that never started unless
+        # it is actually checked, which is what made this confusing to debug.
+        time.sleep(4.0)
+        print("\n" + "=" * 76)
+        bad = 0
+        for label, script, proc in started:
+            if proc.poll() is None:
+                print(f"  {label}: RUNNING  (pid {proc.pid})  {script}")
+            else:
+                bad += 1
+                print(f"  {label}: *** DIED *** exit code {proc.returncode}  {script}")
+        print("=" * 76)
+        if bad:
+            print(f"\n[WARNING] {bad} terminal(s) did not stay up. Run that script")
+            print("directly in its own window to see the real error.")
+        else:
+            print("\n[SUCCESS] All 3 terminals launched and are still running.")
         print("You can position them across your monitors for full visibility.\n")
     else:
         print("[INFO] Non-Windows environment detected. Launching processes...")

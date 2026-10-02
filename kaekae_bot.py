@@ -1690,6 +1690,22 @@ def audio_transcription_worker():
             if not clean_text or len(clean_text.strip()) < 2:
                 continue
 
+            # Re-confirm the speaker NOW instead of trusting the read taken at
+            # chunk start. A 7s chunk plus Whisper time means several seconds
+            # have passed by the time this text is recorded, and the bubble may
+            # name somebody else entirely. Only a settled, UNANIMOUS read is
+            # allowed to overwrite the earlier guess - an unstable window
+            # returns "" and the chunk-start name stands rather than a coin
+            # flip being written into someone's profile.
+            confirmed = resolve_speaker_settled()
+            if confirmed and confirmed != speaker:
+                print(f"[SPEAKER] Changed during transcription: {speaker} -> "
+                      f"{confirmed}; recording under {confirmed}.")
+                speaker = confirmed
+            elif not confirmed:
+                print(f"[SPEAKER] Could not confirm a stable speaker at record "
+                      f"time; keeping {speaker}.")
+
             last_transcribed_text = raw_clean_text
             last_speaker = speaker
 
@@ -2157,16 +2173,17 @@ def read_ocr_speaker_name() -> str:
     identity pool, so a garbled read resolves to nothing rather than to a
     plausible-looking wrong name. Returns "" when nothing matches.
     """
-    controller = global_talk_controller
-    if controller is None:
-        return ""
+    # Use cef_probe.query_speaker_ocr(), which derives its crop from the LIVE
+    # Talk-button rect and uses a light-ink gate. read_speaker_name_verbose()
+    # used the cached active_speaker_ocr_region, which went stale when the
+    # window grew 782 -> 1399px tall and returned 0 ink for a speaking bubble.
+    raw = ""
     try:
-        if not controller._ocr_available():
-            return ""
-        raw, ok = controller.read_speaker_name_verbose()
+        if global_probe is not None:
+            raw = global_probe.query_speaker_ocr() or ""
     except Exception:
-        return ""
-    if not ok or not raw:
+        raw = ""
+    if not raw:
         return ""
     if is_bot_name_strict(raw):
         return raw
@@ -2214,14 +2231,113 @@ def read_mic_status() -> Dict[str, Any]:
         return {"stage": "unknown", "detail": "", "at": ""}
 
 
-def find_active_speaker(win) -> str:
-    """
-    Finds the active microphone speaker's username.
+# Speaker attribution tuning. A transcript is attributed to whoever was on the
+# mic at CHUNK START, but Whisper STT on a 7s chunk means the text is recorded
+# several seconds later - by which time the bubble may name somebody else. The
+# settle delay lets the speaker bubble stop churning, and CONFIRM_SAMPLES
+# re-reads it so a name is only trusted when it repeats.
+SPEAKER_SETTLE_SECONDS = 2.5
+SPEAKER_CONFIRM_SAMPLES = 3
+SPEAKER_CONFIRM_GAP = 0.25
 
-    OCR of the active-speaker bubble is tried FIRST because it is the only
-    signal proven to survive during a real mic session; the CEF/UIA node text is
-    the fallback for when OCR is unavailable or unreadable.
+
+def _speaker_config():
+    try:
+        cfg = _core.load_config() if _core is not None else {}
+    except Exception:
+        cfg = {}
+    return cfg if isinstance(cfg, dict) else {}
+
+
+def _read_speaker_once(use_ocr: bool = True) -> str:
+    """One speaker read, preferring the native control over pixels.
+
+    cef_probe.sample_active_speaker_once() reads Camfrog's own CButtonTS
+    accessibility node (exact, ~277ms) and only falls back to OCR. The old
+    ordering put read_ocr_speaker_name() first, and that path used the stale
+    active_speaker_ocr_region with a <128 ink gate that scored a real name at
+    37-127px and an EMPTY bubble at 0 - so it was both the slower and the less
+    truthful of the two sources.
     """
+    try:
+        if global_probe is not None:
+            name = global_probe.sample_active_speaker_once(use_ocr=use_ocr)
+            if name:
+                return str(name).strip()
+    except Exception:
+        pass
+    return ""
+
+
+def resolve_speaker_settled(settle=None, samples=None, gap=None) -> str:
+    """Returns the speaker only once the bubble has stopped changing.
+
+    A transcript is attributed to whoever was on the mic at chunk start, but a
+    7s chunk plus Whisper means seconds pass before the text is written, and
+    the bubble may name somebody else by then. So the name is re-confirmed at
+    RECORD time, after a settle delay, and only when it has held steady.
+
+    The confirmation reads cef_probe's probe-daemon state rather than walking
+    the UIA tree again. That daemon already samples the speaker every 0.08s
+    and maintains `current_speaker` plus `last_speaker_change`, so stability is
+    a free lookup. Walking the tree per sample instead cost ~2.3s a read and
+    CONTENDED with the daemon's own polling, tripling the wait for nothing.
+
+    Returns "" when nobody is on the mic or the name changed too recently to
+    trust. An honest unknown beats a confidently wrong attribution: a wrong
+    name is written into that person's permanent profile.
+    """
+    cfg = _speaker_config()
+    if settle is None:
+        settle = float(cfg.get("speaker_settle_seconds", SPEAKER_SETTLE_SECONDS) or 0.0)
+    if samples is None:
+        samples = int(cfg.get("speaker_confirm_samples", SPEAKER_CONFIRM_SAMPLES) or 1)
+    if gap is None:
+        gap = float(cfg.get("speaker_confirm_gap", SPEAKER_CONFIRM_GAP) or 0.0)
+
+    probe = global_probe
+    if probe is not None and getattr(probe, "running", False):
+        if settle > 0:
+            time.sleep(settle)
+        name = (getattr(probe, "current_speaker", "") or "").strip()
+        changed_at = float(getattr(probe, "last_speaker_change", 0.0) or 0.0)
+        held = time.time() - changed_at if changed_at else 0.0
+        if not name or name.lower() == "unknown speaker":
+            return ""
+        # Require the name to have survived most of the settle window, so a
+        # hand-off mid-window is reported as unstable rather than attributed.
+        if held < (settle * 0.6):
+            return ""
+        return name
+
+    # No daemon running: fall back to sampled native reads, spaced across the
+    # settle budget so the total added latency stays ~settle, not settle+work.
+    n = max(1, samples)
+    step = (settle / (n - 1)) if (n > 1 and settle > 0) else gap
+    seen = []
+    for i in range(n):
+        seen.append(_read_speaker_once(use_ocr=False))
+        if i < n - 1 and step > 0:
+            time.sleep(step)
+    named = [x for x in seen if x]
+    if not named:
+        return _read_speaker_once(use_ocr=True)
+    if len(set(x.lower() for x in named)) != 1:
+        return ""   # changed mid-window: refuse to pick a winner
+    return named[0]
+
+
+
+def find_active_speaker(win) -> str:
+    """Finds the active microphone speaker's username.
+
+    The native CEF accessibility control is authoritative and is tried first;
+    OCR of the bubble is only a fallback (see _read_speaker_once).
+    """
+    native = _read_speaker_once()
+    if native:
+        return native
+
     ocr_name = read_ocr_speaker_name()
     if ocr_name:
         return ocr_name
@@ -3732,7 +3848,8 @@ def sample_dom_snapshot(texts: List[str], force: bool = False) -> None:
 
 
 def claim_and_dispatch(clean_user: str, timestamp: str, message: str,
-                       source: str = "cef", trusted: bool = False) -> bool:
+                       source: str = "cef", trusted: bool = False,
+                       dedupe_salt: str = "") -> bool:
     """
     THE single claim-and-dispatch entry point for every captured chat message.
     - Validates the sender before anything else (no invented usernames).
@@ -3810,7 +3927,14 @@ def claim_and_dispatch(clean_user: str, timestamp: str, message: str,
 
     # Durable, timestamp-free claim - persisted BEFORE any dispatch/logging
     if _core is not None:
-        sig = _core.make_chat_signature(state.current_focused_room, clean_u, raw_m)
+        # `dedupe_salt` varies the CLAIM KEY without touching the command text.
+        # The durable claim exists to stop a message lingering on screen from
+        # re-firing, but an operator command from the Terminal 3 console is
+        # drained exactly once and never re-read - so with an identical key a
+        # toggle could only ever fire ONCE per dedupe window and the control
+        # silently did nothing on the second press.
+        claim_text = raw_m + ("\n" + dedupe_salt if dedupe_salt else "")
+        sig = _core.make_chat_signature(state.current_focused_room, clean_u, claim_text)
         # Trigger dedupe is deliberately EPHEMERAL. It only has to stop the same
         # command being re-dispatched by the 0.25s chat re-scan while the line
         # is still on screen, so an in-process set is enough - and it is the
@@ -4917,7 +5041,11 @@ def main():
                             if cmd_text:
                                 claim_and_dispatch(
                                     "b3_d33", format_bot_timestamp(), cmd_text,
-                                    source="command_inbox", trusted=True
+                                    source="command_inbox", trusted=True,
+                                    # each inbox line is a distinct operator
+                                    # action; the dump timestamp keys it so
+                                    # repeating the same command still runs
+                                    dedupe_salt=str(entry.get("ts") or "")
                                 )
                     except Exception as e_inbox:
                         print(f"[INBOX] Drain warning: {e_inbox}")

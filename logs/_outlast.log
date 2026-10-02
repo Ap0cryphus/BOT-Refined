@@ -1,0 +1,71 @@
+======================================================================
+MIC OUTLAST TEST - single-mic room
+======================================================================
+  attach=True coords=(1326, 565) device=CABLE Input (VB-Audio Virtual Cable)
+
+  PHASE A - ADMIN: hold your mic and speak continuously.
+  The bot will NOT press. It is waiting for your timer to run out.
+  Keep going as long as you can (window: 75s).
+
+    bubble cleared at t=7.3s - striking NOW
+
+  PHASE A result
+    samples      = 26 over 7.3s
+    flow median  = 73.4
+    human lead   = Shtickie
+    bot pressed  = NO (correct - never fought a live hold)
+
+  PHASE B - striking: audio FIRST, then press-and-hold
+
+********
+Warning: flash-attn is not installed. Will only run the manual PyTorch version. Please install flash-attn for faster inference.
+********
+ 
+[QWEN TTS] Loading Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice (first use)...
+[QWEN TTS] Model ready.
+[QWEN TTS] Synthesized 'vivian' -> temp_say_broadcast.wav (3.28s @ 24000Hz)
+[AUDIO ROUTE] Broadcasting to #20 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 13677/32767)...
+[AUDIO ROUTE] Broadcast completed cleanly through 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]'.
+[AUDIO ROUTE] Broadcasting to #20 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 13677/32767)...
+[AUDIO ROUTE] Broadcast completed cleanly through 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]'.
+[AUDIO ROUTE] Broadcasting to #20 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]' (44100Hz, 2ch, Peak 13677/32767)...
+[CEF TALK CONTROLLER] Releasing microphone...
+[CEF TALK CONTROLLER] Microphone released. Mic is free for the room.
+
+  PHASE B result
+    t=0.1s flow=115.4  name=''
+    t=0.4s flow=115.4  name='KaeKaeToad'  <== OURS
+    t=0.7s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=0.9s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=1.2s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=1.4s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=1.7s flow=113.2  name='KaeKaeToad'  <== OURS
+    t=1.9s flow=113.2  name='KaeKaeToad'  <== OURS
+    t=2.2s flow=113.2  name='KaeKaeToad'  <== OURS
+    t=2.5s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=2.7s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=3.0s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=3.3s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=3.5s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=3.8s flow=115.4  name='KaeKaeToad'  <== OURS
+    t=4.0s flow=115.4  name='KaeKaeToad'  <== OURS
+    t=4.3s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=4.5s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=4.8s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=5.0s flow=113.2  name='KaeKaeToad'  <== OURS
+    t=5.3s flow=113.2  name='KaeKaeToad'  <== OURS
+    t=5.6s flow=115.4  name='KaeKaeToad'  <== OURS
+    t=5.8s flow=115.4  name='KaeKaeToad'  <== OURS
+    t=6.1s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=6.3s flow=116.6  name='KaeKaeToad'  <== OURS
+    t=6.6s flow=113.2  name='KaeKaeToad'  <== OURS
+    t=6.9s flow=113.2  name='KaeKaeToad'  <== OURS
+    t=7.1s flow=113.2  name='KaeKaeToad'  <== OURS
+    t=7.4s flow=115.4  name='KaeKaeToad'  <== OURS
+    t=7.7s flow=115.4  name='KaeKaeToad'  <== OURS
+    t=7.9s flow=113.2  name='KaeKaeToad'  <== OURS
+
+    owned 30/30 samples (100%)
+
+  RESULT: OUTLASTING WORKS - the bot took the mic cleanly.
+[AUDIO ROUTE] Broadcast completed cleanly through 'CABLE Input (VB-Audio Virtual Cable) [windows directsound]'.

@@ -1,0 +1,67 @@
+============================================================================
+  KAEKAE AUDIO WORKER (TERMINAL 2: SOUND & VOICE ENGINE)
+============================================================================
+  Target Audio Device  : 'CABLE Input (VB-Audio Virtual Cable)'
+  Voice Engine         : qwen (persona=valley, qwen_speaker=vivian)
+  ElevenLabs API Key   : not set (add 'elevenlabs_api_key' to config.json)
+  Chat writes          : OUTBOX mode (Terminal 1 owns the chat box)
+============================================================================
+
+[CONFIG] Loaded config from C:\Users\newbe\AIBot\config.json
+=================================================================
+[BOT STATE RESTORED FROM DISK]
+  * Live Transcription: ON
+  * Room Listening:     ON
+  * Current Tone:       normal
+  * Chatty Mode:        ON
+  * Cached Signatures:  0 messages
+=================================================================
+[AUDIO WORKER] Persisted user/memory data loaded.
+[AUDIO WORKER] Broadcast consumer online.
+[AUDIO THREAD] Started continuous stream on 'CABLE Output (VB-Audio Virtual Cable)' (device #16) at 16000Hz with 2.0s sliding overlap.
+[PENDING STT] Found 1 untranscribed audio clips in queue. Transcribing...
+[VOICE] Loading Faster-Whisper (base.en)...
+[AUDIO WORKER] CEF speaker probe started (mic verification needs it).
+[HOTKEY] Keyboard hotkeys initialized (F8 = Transcribe Toggle, ASDF = Listen Toggle).
+[HOTKEY] Active: Left-Ctrl + Right-Click is armed to stop transcription.
+[PENDING STT SUCCESS] Transcribed clip 'audio_clips\20261001T035919_421347.wav': "Fucking shit right now."
+[AUDIO THREAD] Caught up 1 pending audio clips from prior session.
+[AUDIO THREAD] Audio engine active: 5.0s steps with 2.0s glued overlap into Faster-Whisper.
+[AUDIO] Level: 23197 [#########################] (SPEAKING)
+[AUDIO] Level: 23197 [#########################] (SPEAKING)
+[AUDIO] Level: 23197 [#########################] (SPEAKING)
+[MIC HEARD] "Not a great diet, you're going to have to fuck your diet up if you want to get mass. If you want definitely-" (Speaker: Unknown speaker, Peak: 23197, Overlap: 2.0s)
+[TRANSCRIBE POST] Broadcasting to chat: [MIC] Unknown speaker (10/01I04:32:38): Not a great diet, you're going to have to fuck your diet up if you want to get mass. If you want definitely-
+[CHAT OUTBOX] Queued for Terminal 1: "[MIC] Unknown speaker (10/01I04:32:38): Not a great diet, you're going"
+[AUDIO] Level: 23197 [#########################] (SPEAKING)
+[MIC HEARD] "Mass, if you want definition, then you have to curb your diet in a certain way, so it's all." (Speaker: Unknown speaker, Peak: 23197, Overlap: 2.0s)
+[TRANSCRIBE POST] Broadcasting to chat: [MIC] Unknown speaker (10/01I04:32:45): Mass, if you want definition, then you have to curb your diet in a certain way, so it's all.
+[CHAT OUTBOX] Queued for Terminal 1: '[MIC] Unknown speaker (10/01I04:32:45): Mass, if you want definition, '
+[AUDIO] Level: 23197 [#########################] (SPEAKING)
+[AUDIO] Level: 23197 [#########################] (SPEAKING)
+[MIC HEARD] "Your diet in a certain way says always what you eat, not what you lift. You guys ain't talking about them." (Speaker: Unknown speaker, Peak: 23197, Overlap: 2.0s)
+[TRANSCRIBE POST] Broadcasting to chat: [MIC] Unknown speaker (10/01I04:32:55): Your diet in a certain way says always what you eat, not what you lift. You guys ain't talking about them.
+[CHAT OUTBOX] Queued for Terminal 1: '[MIC] Unknown speaker (10/01I04:32:55): Your diet in a certain way say'
+[AUDIO] Level: 23197 [#########################] (SPEAKING)
+[MIC HEARD] "You guys ain't talking about the most important thing, and I don't care what it is if you're fucking running marathons, lifted weights." (Speaker: Unknown speaker, Peak: 23197, Overlap: 2.0s)
+[TRANSCRIBE POST] Broadcasting to chat: [MIC] Unknown speaker (10/01I04:33:03): You guys ain't talking about the most important thing, and I don't care what it is if you're fucking running marathons, lifted weights.
+[CHAT OUTBOX] Queued for Terminal 1: "[MIC] Unknown speaker (10/01I04:33:03): You guys ain't talking about t"
+[AUDIO] Level: 23197 [#########################] (SPEAKING)
+[AUDIO] Level: 23197 [#########################] (SPEAKING)
+[MIC HEARD] "Running marathons, lifting weights. It's right here. Your mindset. Your mind is-" (Speaker: Unknown speaker, Peak: 23197, Overlap: 2.0s)
+[TRANSCRIBE POST] Broadcasting to chat: [MIC] Unknown speaker (10/01I04:33:11): Running marathons, lifting weights. It's right here. Your mindset. Your mind is-
+[CHAT OUTBOX] Queued for Terminal 1: '[MIC] Unknown speaker (10/01I04:33:11): Running marathons, lifting wei'
+[AUDIO] Level: 23197 [#########################] (SPEAKING)
+
+[SPEECH QUEUE] Broadcasting: "Harness test kilo four" (persona=valley, from t3)...
+[AUDIO] Level: 23197 [#########################] (SPEAKING)
+
+********
+Warning: flash-attn is not installed. Will only run the manual PyTorch version. Please install flash-attn for faster inference.
+********
+ 
+[QWEN TTS] Loading Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice (first use)...
+[MIC HEARD] "the most important thing. A lot of you guys, they got the fucking minds." (Speaker: Unknown speaker, Peak: 23197, Overlap: 2.0s)
+[TRANSCRIBE POST] Broadcasting to chat: [MIC] Unknown speaker (10/01I04:33:23): the most important thing. A lot of you guys, they got the fucking minds.
+[CHAT OUTBOX] Queued for Terminal 1: '[MIC] Unknown speaker (10/01I04:33:23): the most important thing. A lo'
+[AUDIO] Level: 23197 [#########################] (SPEAKING)

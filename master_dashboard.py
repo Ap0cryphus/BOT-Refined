@@ -8,7 +8,7 @@ never touches Camfrog directly:
   [2] Voice / Engine picker  -> config.json (persists everywhere)
   [3] Send a silent command  -> command_inbox.jsonl (Terminal 1 runs it)
   [4] Grab / Release the mic -> verified controller, honest result
-  [5] Stop transcription     -> silent command (obeys the one-hour gate + dedupe)
+  [5] Toggle transcription   -> !transcribe / !transcribed, verified round trip
 
 Every action goes through kaekae_core's cross-process-safe store.
 ==============================================================================
@@ -75,8 +75,14 @@ def print_hud():
           f"   STT + verified talk control")
     print(f"    - Room Focused         : {state_data.get('current_focused_room', 'unknown')}")
     print(f"    - Active Mic Speaker   : {state_data.get('current_active_speaker', 'Unknown speaker')}")
-    print(f"    - Transcription        : {'ON' if state_data.get('transcribe_enabled') else 'OFF'}"
-          f"   |  Listening: {'ON' if state_data.get('listening_enabled') else 'OFF'}"
+    # STT and the chat echo are separate switches (see the !transcribe /
+    # !transcribed note in kaekae_bot). Showing only STT made option 5 look
+    # broken, because STT reads ON while the echo it actually controls is OFF.
+    _stt = bool(state_data.get('transcribe_enabled'))
+    _echo = bool(state_data.get('transcript_echo_enabled'))
+    print(f"    - Transcription        : STT {'ON' if _stt else 'OFF'}"
+          f"   |  chat echo {'ON' if _echo else 'OFF'}  <- option 5 toggles the echo")
+    print(f"    - Listening            : {'ON' if state_data.get('listening_enabled') else 'OFF'}"
           f"   |  Chatty: {'ON' if state_data.get('chatty_mode') else 'OFF'}"
           f"   |  Muted: {'YES' if state_data.get('responses_muted') else 'no'}")
     diss = state_data.get("diss_active", False)
@@ -161,7 +167,14 @@ def print_hud():
     except Exception:
         pass
     print("=" * 78)
-    print("  [1] Speak on mic   [2] Voice/Engine   [3] Send command   [4] Grab/Release mic   [5] Stop transcription   [0] Exit")
+    # Label option 5 with the action it will actually perform. A fixed
+    # "Stop transcription" is wrong the moment echo is already off, which is
+    # the startup default - the operator pressed it expecting transcription to
+    # start and nothing happened because the code was sending !transcribed.
+    _echo_on = bool((state_data or {}).get("transcript_echo_enabled"))
+    _t5 = "[5] Stop transcription" if _echo_on else "[5] START transcription"
+    print(f"  [1] Speak on mic   [2] Voice/Engine   [3] Send command   "
+          f"[4] Grab/Release mic   {_t5}   [0] Exit")
     print("=" * 78)
 
 
@@ -199,9 +212,54 @@ def send_command(text):
 
 
 def toggle_transcription():
-    """Stop live transcription via the same silent-command path (state stays
-    owned by Terminal 1 - no cross-process file clobbering)."""
-    send_command("!transcribed")
+    """Real ON/OFF toggle for the live transcription echo.
+
+    Option 5 previously sent !transcribed unconditionally, so it could only
+    ever stop: pressing it while transcription was off did nothing visible and
+    looked broken. The command pair is asymmetric -
+
+        !transcribe   -> echo transcribed room speech to chat   (ON)
+        !transcribed  -> stop echoing                           (OFF)
+
+    - so the direction has to be chosen from current state, not hardcoded.
+    State is owned by Terminal 1 in bot_state.json and is only ever changed by
+    going through the silent-command path (dump_inbox_command), never by
+    writing the file from here, which would race the owner.
+
+    The state is re-read after a beat so the console PRINTS whether the round
+    trip actually landed. A send that silently fails looks identical to a
+    successful one otherwise, and the dashboard is the only place this is
+    visible.
+    """
+    if core is None:
+        print("\n[ERROR] kaekae_core unavailable.")
+        return False
+
+    def echo_on():
+        data = core.read_json("bot_state.json", {}) or {}
+        return bool(data.get("transcript_echo_enabled")), bool(data.get("transcribe_enabled"))
+
+    before, stt = echo_on()
+    cmd = "!transcribed" if before else "!transcribe"
+    print(f"\n[ACTION] Transcription echo is {'ON' if before else 'OFF'} "
+          f"(STT {'ON' if stt else 'OFF'}) -> sending {cmd}")
+    if not send_command(cmd):
+        return False
+    # Poll rather than sleep once: Terminal 1 drains command_inbox.jsonl on its
+    # own schedule, so a single check after a fixed delay reports "no change"
+    # for a command that is about to land - which is exactly the sort of lie
+    # that makes this control look broken.
+    after, stt2 = before, None
+    for _ in range(20):                 # up to ~6s
+        time.sleep(0.3)
+        after, stt2 = echo_on()
+        if after != before:
+            break
+    ok = (after != before)
+    waited = 0.3 * (_ + 1)
+    print(f"[RESULT] Transcription echo is now {'ON' if after else 'OFF'}"
+          f"   {'OK' if ok else 'NO CHANGE after %.1fs - Terminal 1 did not run it' % waited}")
+    return ok
 
 
 def grab_or_release():

@@ -1,0 +1,236 @@
+============================================================================
+  KAEKAE CHAT WORKER (TERMINAL 1: TEXT & CHAT ENGINE)
+============================================================================
+  Status      : Starting CEF chat monitor (no OCR)...
+  Chat writes : DIRECT (this terminal types into the Camfrog chat box)
+  Audio Worker: Terminal 2 handles mic capture, STT and the talk button
+============================================================================
+
+[CHAT WORKER] Launching dedicated chat loop...
+===========================================================================
+ KaeKae Camfrog Bot Starting Up...
+===========================================================================
+
+===========================================================================
+ KAEKAE BOT - NEW MASTER TRIGGERS & COMMAND LIST
+===========================================================================
+
+[Chat Triggers & Direct Queries]
+  kae / kaekae / kae kae   - Wake triggers anywhere after time/date and username
+  kae what time it is      - Instantly returns current exact time & date to caller
+  kaekae what time is it   - Instantly returns current exact time & date to caller
+  !kk [query]              - Ask KaeKae anything in chat
+  !chat                    - Turn chatty mode ON (mingles and comments on room members)
+  !chat off                - Turn chatty mode OFF (quiet in room)
+  !shutup                  - Mute spontaneous chatter
+
+[Temperament & Continuous 1-Minute Diss System]
+  !diss [username]         - Roasts target user (or room). DEPLOYS CONTINUOUS 1-MINUTE INTERVAL ROASTS!
+  !chill / chill           - Stop the diss function completely and restore chill mode
+  !calm / calm             - Reset temperament to normal
+  !tone <temperament>      - Set personality temperament:
+                             * angry (aggressive fiery roasts)
+                             * terminator (Cyberdyne T-800 dissing everyone in room)
+                             * proud (triumphant boastful flexing)
+                             * sad (melodramatic emo valley-girl sighs)
+                             * funny (witty comedy mode)
+                             * happy (bubbly cheerful mode)
+                             * savage (brutal roasts)
+                             * chill (relaxed laid-back)
+                             * normal (standard valley-girl)
+
+[Room & User Intelligence]
+  !who / !room / !users    - Paginated list of all room occupants using '(1/N !mo)' format (<=400 chars)
+  !mo / y                  - Send the next page of room members, recall results, or grabs
+  who is <username>        - Narrative biography from audio & chat history (no mod logs)
+  info on <username>       - Statistical profile (Audio/Text Tone, top non-filler word, mic grabs)
+  !grabs [user] [duration] - Microphone grab logs with flexible increments from 5 minutes to 72 hours!
+                             Examples: !grabs 5m, !grabs 30m, !grabs 1h, !grabs 24h, !grabs 72h
+  idk [query] / !idk       - Smart instant answer or funny contextual comeback (Chat & Mic)
+
+[Microphone, Audio & Verbatim Transcripts]
+  !listen                  - Turn microphone listening ON
+  !mute                    - Turn microphone listening OFF
+  !transcribe              - Echo transcribed room speech to Camfrog chat
+  !transcribed             - Stop echoing transcribed speech to chat
+  !pending / !catchup      - View & transcribe backlogged audio clips
+  !recall <term>           - Exact word/acronym search (e.g. '!recall pi' matches 'pi' alone, NOT 'opinion')
+  !recall *<term>*         - Wildcard substring search (e.g. '!recall *pi*' matches 'opinion', 'recipe', etc.)
+  !verbatim [username]     - Exact word-for-word quotes and mic transcripts for user (or active speaker)
+  !verbatimall             - Recent verbatim speech from everyone in the room
+
+[Talk Button / Microphone Control]
+  !grab [seconds]          - Hold the Talk button (default 5s, max 30s)
+  !release                 - Release the Talk button immediately
+  !talkstatus              - Who holds the mic + the active press pattern
+  !reloadcoords            - Reload chat/talk coordinates from disk
+
+[Authorized Creator (Papi)]
+  Authorized Users: b3_d33, dog3lived, $htickie, b3_dee, dog
+  Title: Addressed with respect as 'Papi'
+  Short replies: Quick respectful responses ('Yes Sir', 'No Sir', 'Okay Daddy', 'As you wish Pop')
+  !say "message"           - Queues a spoken broadcast; the mic grab is VERIFIED
+                             (rapid re-press until KaeKae's name holds the room
+                             speaker slot for 1 full second) or the broadcast aborts
+
+[Repeat Protection]
+  No message is answered twice: each chat message is claimed once (dedupe),
+  and KaeKae will not repeat any reply it sent in the past hour.
+
+===========================================================================
+
+[INIT] Loading stored data and runtime state...
+[CONFIG] Loaded config from C:\Users\newbe\AIBot\config.json
+=================================================================
+[BOT STATE RESTORED FROM DISK]
+  * Live Transcription: ON
+  * Room Listening:     ON
+  * Current Tone:       normal
+  * Chatty Mode:        ON
+  * Cached Signatures:  0 messages
+=================================================================
+[INIT] Stored data loaded.
+[INIT] Connected to Camfrog window! Focused room: 'Players__Lounge, Topic: HAPPY BIRTHDAY AMY AND TRICON, LADIES BEFORE GENTS HAHA'
+[CHAT ACK SUPPRESSED] (10/01I09:36:19) KaeKae is Alpha Testing, Debugging, and Updating Currently.
+[CEF-PROBE] Fast-path Chromium speaker probe background service started.
+[AUDIO-FILER] Decoupled async audio chunk archiver started.
+[AUDIO THREAD] Microphone streaming disabled in this process (Terminal 2 owns it).
+[USER-SCANNER] Real-time Camfrog room member roster tracking started.
+[HOTKEY] Keyboard hotkeys initialized (F8 = Transcribe Toggle, ASDF = Listen Toggle).
+[HOTKEY] Active: Left-Ctrl + Right-Click is armed to stop transcription.
+[CEF CHAT DETECTED] 9:30 AM <OMGitsANGEL>: dude.
+[CHAT SENT] Oh my god, ashyboi probably just realized his birthday cake is actually for Amy ...
+[CEF CHAT DETECTED] 9:31 AM <OMGitsANGEL>: i ended up on meds for that while on it
+[CEF CHAT DETECTED] 9:31 AM <OMGitsANGEL>: goodness
+[CEF CHAT DETECTED] 9:31 AM <OMGitsANGEL>: thats cuuuuute
+[CEF CHAT DETECTED] 9:31 AM <OMGitsANGEL>: i love ninja
+[CEF CHAT DETECTED] 9:31 AM <CYBERBABY2>: i have all ninja products dont have that lol
+[CEF CHAT DETECTED] 9:31 AM <OMGitsANGEL>: i like that
+[CEF CHAT DETECTED] 9:31 AM <OMGitsANGEL>: alot
+[CEF CHAT DETECTED] 9:31 AM <OMGitsANGEL>: thats coooool
+[CEF CHAT DETECTED] 9:32 AM <OMGitsANGEL>: thats awesome cyber
+[CEF CHAT DETECTED] 9:32 AM <OMGitsANGEL>: dang fr?
+[CEF CHAT DETECTED] 9:33 AM <OMGitsANGEL>: wb ganj
+[CEF CHAT DETECTED] 9:33 AM <CYBERBABY2>: i can only lose by walking
+[CEF CHAT DETECTED] 9:33 AM <Stonerwayne1000>: true Doll
+[CEF CHAT DETECTED] 9:33 AM <CYBERBABY2>: 5 mg is too much
+[CEF CHAT DETECTED] 9:33 AM <OMGitsANGEL>: i did it was a bad idea
+[CEF CHAT DETECTED] 9:33 AM <OMGitsANGEL>: i was like famished coming off it
+[CEF CHAT DETECTED] 9:33 AM <irreplacable>: in danger could be more than covid happened
+[CEF CHAT DETECTED] 9:34 AM <OMGitsANGEL>: i love food
+[CEF CHAT DETECTED] 9:34 AM <OMGitsANGEL>: its the best
+[CEF CHAT DETECTED] 9:34 AM <OMGitsANGEL>: good food
+[CEF CHAT DETECTED] 9:34 AM <OMGitsANGEL>: yesss
+[CEF CHAT DETECTED] 9:34 AM <CYBERBABY2>: if it works for you is good jadie
+[CEF CHAT DETECTED] 9:34 AM <OMGitsANGEL>: thats awesome
+[CEF CHAT DETECTED] 9:34 AM <CYBERBABY2>: ive never been a eater
+[CEF CHAT DETECTED] 9:34 AM <CYBERBABY2>: i hate food
+[CEF CHAT DETECTED] 9:34 AM <OMGitsANGEL>: good idea
+[CEF CHAT DETECTED] 9:34 AM <OMGitsANGEL>: yep
+[CEF CHAT DETECTED] 9:35 AM <OMGitsANGEL>: i was scared about tha
+[CEF CHAT DETECTED] 9:35 AM <OMGitsANGEL>: that
+[CEF CHAT DETECTED] 9:35 AM <OMGitsANGEL>: it was surprisingly okay
+[CEF CHAT DETECTED] 9:35 AM <irreplacable>: digital n kind industries would be disastered if quantum appears coz all kind programs gonna failed n easy automatic caught viruses
+[CEF CHAT DETECTED] 9:35 AM <CYBERBABY2>: i dont have saggy skin
+[CEF CHAT DETECTED] 9:35 AM <OMGitsANGEL>: it just depends on the person
+[CEF CHAT DETECTED] 9:36 AM <OMGitsANGEL>: wb fay
+[CEF CHAT DETECTED] 9:36 AM <FayTality1980>: ty
+[CEF CHAT DETECTED] 9:36 AM <SkylineJessyka1>: wb Fay xx
+[CEF CHAT DETECTED] 9:36 AM <irreplacable>: then going stag/death
+[MAIN LOOP ERROR] 'charmap' codec can't encode character '\U0001f923' in position 55: character maps to <undefined>
+[CEF CHAT DETECTED] 9:36 AM <FayTality1980>: you're all cuntss
+[CEF CHAT DETECTED] 9:36 AM <CYBERBABY2>: i aint a cunt lol
+[CEF CHAT DETECTED] 9:36 AM <SkylineJessyka1>: wow fay
+[CEF CHAT DETECTED] 9:36 AM <CYBERBABY2>: lol fay
+[CHAT SENT] OMG cyberbaby2, did Fay steal your lunch money or just your heart?! Like, totall...
+[CEF CHAT DETECTED] 9:36 AM <FayTality1980>: CYBERBABY2
+[CEF CHAT DETECTED] 9:36 AM <CYBERBABY2>: fay you made me type that
+[CEF CHAT DETECTED] 9:36 AM <CYBERBABY2>: im 158
+[CEF CHAT DETECTED] 9:36 AM <SkylineJessyka1>: im only a cunt cause im not there
+[CEF CHAT DETECTED] 9:36 AM <FayTality1980>: hahah
+[CEF CHAT DETECTED] 9:36 AM <FayTality1980>: see jess knows
+[CEF CHAT DETECTED] 9:37 AM <OMGitsANGEL>: i guess so
+[CEF CHAT DETECTED] 9:37 AM <OMGitsANGEL>: just get ozempic
+[CEF CHAT DETECTED] 9:37 AM <OMGitsANGEL>: it works
+[CEF CHAT DETECTED] 9:37 AM <OMGitsANGEL>: just gotta train your mind too
+[CEF CHAT DETECTED] 9:37 AM <CYBERBABY2>: what do you consider obese
+[CEF CHAT DETECTED] 9:37 AM <SkylineJessyka1>: ozempic isnt for everyone
+[CEF CHAT DETECTED] 9:37 AM <OMGitsANGEL>: true
+[CEF CHAT DETECTED] 9:37 AM <CYBERBABY2>: youre right jess its not
+[CEF CHAT DETECTED] 9:37 AM <_Arron_>: wb jen
+[CEF CHAT DETECTED] 9:37 AM <lisa_lou>: Is gagi single?
+[CEF CHAT DETECTED] 9:37 AM <irreplacable>: easily get leaked all kind computerized
+[CEF CHAT DETECTED] 9:37 AM <OMGitsANGEL>: but the just having lke disciplin
+[CEF CHAT DETECTED] 9:38 AM <OMGitsANGEL>: control
+[CEF CHAT DETECTED] 9:38 AM <Jen_Jen_Jen>: X
+[CEF CHAT DETECTED] 9:38 AM <SkylineJessyka1>: wb  Jen
+[CEF CHAT DETECTED] 9:38 AM <OMGitsANGEL>: wb jen!
+[MAIN LOOP ERROR] 'charmap' codec can't encode characters in position 43-44: character maps to <undefined>
+[CEF CHAT DETECTED] 9:38 AM <OMGitsANGEL>: yall portions are so much smaller too
+[CEF CHAT DETECTED] 9:38 AM <OMGitsANGEL>: even your shoe sizes are smaller
+[CEF CHAT DETECTED] 9:39 AM <OMGitsANGEL>: your clothing sizes
+[CEF CHAT DETECTED] 9:39 AM <OMGitsANGEL>: all way smaller then us
+[CEF CHAT DETECTED] 9:39 AM <OMGitsANGEL>: wb rose!
+[CEF CHAT DETECTED] 9:39 AM <OMGitsANGEL>: HOPE YOURE HAVING A GOOD DAY
+[CEF CHAT DETECTED] 9:39 AM <lisa_lou>: Rosie x
+[CEF CHAT DETECTED] 9:39 AM <_Arron_>: takes days off because I love food too much and cant stop till I feel sick lol
+[CEF CHAT DETECTED] 9:39 AM <SkylineJessyka1>: its more a consistency thing lol
+[CEF CHAT DETECTED] 9:39 AM <OMGitsANGEL>: wb durden
+[CEF CHAT DETECTED] 9:39 AM <SkylineJessyka1>: as long as you put in the work consistently
+[CEF CHAT DETECTED] 9:39 AM <B3_D33>: I can get like that Cyber
+[CHAT SENT] Oh my god, jen_jen_jen, you're such a cyber-cyber queen honestly, like totally! ...
+[CEF CHAT DETECTED] 9:39 AM <SkylineJessyka1>: you should see results
+[CEF CHAT DETECTED] 9:39 AM <OMGitsANGEL>: facts
+[CEF CHAT DETECTED] 9:40 AM <durden123>: ooo what
+[CEF CHAT DETECTED] 9:40 AM <lisa_lou>: Ffs click
+[CEF CHAT DETECTED] 9:40 AM <B3_D33>: I know a lil how you feel but I force the number
+[CEF CHAT DETECTED] 9:40 AM <FayTality1980>: u scared me church
+[CEF CHAT DETECTED] 9:40 AM <FayTality1980>: lol
+[CEF CHAT DETECTED] 9:40 AM <B3_D33>: hunger
+[CEF CHAT DETECTED] 9:40 AM <SkylineJessyka1>: lol Fay
+[CEF CHAT DETECTED] 9:40 AM <Jen_Jen_Jen>: Hi
+[CEF CHAT DETECTED] 9:40 AM <CYBERBABY2>: huh
+[CEF CHAT DETECTED] 9:40 AM <CYBERBABY2>: no i burnt my lip really bad
+[CEF CHAT DETECTED] 9:40 AM <SkylineJessyka1>: howdy Church
+[CEF CHAT DETECTED] 9:40 AM <FayTality1980>: be ok if i dint have a knife in my hand jess ffs
+[CEF CHAT DETECTED] 9:40 AM <SkylineJessyka1>: lmfao FAY
+[CEF CHAT DETECTED] 9:40 AM <SkylineJessyka1>: dont end up like shanks
+[CEF CHAT DETECTED] 9:40 AM <OMGitsANGEL>: ouch
+[CEF CHAT DETECTED] 9:40 AM <FayTality1980>: was a close one
+[CEF CHAT DETECTED] 9:40 AM <lisa_lou>: Ouch
+[CEF CHAT DETECTED] 9:40 AM <OMGitsANGEL>: dang
+[CEF CHAT DETECTED] 9:40 AM <lisa_lou>: Mic
+[CEF CHAT DETECTED] 9:41 AM <Stonerwayne1000>: yeh and church sounds like a sesamy street character
+[CEF CHAT DETECTED] 9:41 AM <CYBERBABY2>: its bad angel i look olike i have herpes
+[CEF CHAT DETECTED] 9:41 AM <CYBERBABY2>: lmfao
+[CEF CHAT DETECTED] 9:41 AM <Stonerwayne1000>: lol wtf
+[CEF CHAT DETECTED] 9:41 AM <OMGitsANGEL>: that sucks
+[CEF CHAT DETECTED] 9:41 AM <irreplacable>: all kind codes or passwords so easily in detected
+[CEF CHAT DETECTED] 9:41 AM <CYBERBABY2>: right
+[CEF CHAT DETECTED] 9:41 AM <CYBERBABY2>: me too i have to discipline myself
+[CEF CHAT DETECTED] 9:41 AM <B3_D33>: CYBERBABY2
+[CEF CHAT DETECTED] 9:41 AM <CYBERBABY2>: i can goo three days without eating before i realize
+[CEF CHAT DETECTED] 9:42 AM <OMGitsANGEL>: ii want one now
+[CEF CHAT DETECTED] 9:42 AM <OMGitsANGEL>: fr
+[CEF CHAT DETECTED] 9:42 AM <OMGitsANGEL>: i have a bromate and a stanley
+[CEF CHAT DETECTED] 9:42 AM <OMGitsANGEL>: they both were 40+
+[CEF CHAT DETECTED] 9:42 AM <CYBERBABY2>: 50 dollars on amazon
+[CEF CHAT DETECTED] 9:42 AM <OMGitsANGEL>: so its really not bad
+[CEF CHAT DETECTED] 9:42 AM <CYBERBABY2>: i have that today jen jen
+[CEF CHAT DETECTED] 9:42 AM <SkylineJessyka1>: i was wondering where ya were jen
+[CEF CHAT DETECTED] 9:42 AM <lisa_lou>: Valium
+[CEF CHAT DETECTED] 9:42 AM <CYBERBABY2>: see your doctor jen
+[CEF CHAT DETECTED] 9:43 AM <CYBERBABY2>: GO SEEYOUR DOCTOR
+[CEF CHAT DETECTED] 9:43 AM <OMGitsANGEL>: oh no
+[CEF CHAT DETECTED] 9:44 AM <Jen_Jen_Jen>: Im just really anxious
+[CEF CHAT DETECTED] 9:44 AM <CYBERBABY2>: jen call your doctor or go to emergency
+[CEF CHAT DETECTED] 9:44 AM <lisa_lou>: Anxiety take it hour by hour
+[CEF CHAT DETECTED] 9:44 AM <OMGitsANGEL>: minute by minute
+[CEF CHAT DETECTED] 9:44 AM <lisa_lou>: Yes
+[CEF CHAT DETECTED] 9:45 AM <B3_D33>: yup
+[CEF CHAT DETECTED] 9:45 AM <OMGitsANGEL>: stress will make you not hungry
+[CEF CHAT DETECTED] 9:45 AM <_Arron_>: hope you feel better soon
+[CEF CHAT DETECTED] 9:45 AM <lisa_lou>: U think about things that won’t happen but that’s anxiety
+[CEF CHAT DETECTED] 9:45 AM <Jen_Jen_Jen>: Lush
+[CEF CHAT DETECTED] 9:45 AM <Jen_Jen_Jen>: Yeh
+[CEF CHAT DETECTED] 9:45 AM <B3_D33>: Maybe body is automatically rejecting something specific or combination
