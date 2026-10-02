@@ -104,5 +104,8 @@
   "bot_favourites": [
     "LifesAJourney",
     "googleit"
-  ]
+  ],
+  "favourite_aliases": {
+    "trish": "LifesAJourney"
+  }
 }

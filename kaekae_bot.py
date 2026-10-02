@@ -3102,6 +3102,74 @@ def get_ignored_names() -> Set[str]:
 # The bot does NOT pick fights on their behalf - being a favourite must never
 # make it argue with someone, or it turns the room into a permanent brawl.
 # ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Affection - the bot genuinely adores its favourites and says so.
+#
+# A favourite can go by more than one handle (LifesAJourney is also "trish").
+# Naming both in one message reads as robotic and leaks the alias mapping to
+# anyone paying attention, so exactly ONE form is chosen per message.
+# ------------------------------------------------------------------------------
+def favourite_forms(name: str) -> List[str]:
+    """Every known handle for this person, e.g. ['LifesAJourney', 'trish']."""
+    canonical = (name or "").strip()
+    if not canonical:
+        return []
+    forms = [canonical]
+    try:
+        alias_map = {}
+        if _core is not None:
+            alias_map = _core.load_config().get("favourite_aliases", {}) or {}
+        for alias, owner in alias_map.items():
+            if str(owner).strip().lower() == canonical.lower():
+                forms.append(str(alias).strip())
+    except Exception:
+        pass
+    seen, out = set(), []
+    for f in forms:
+        if f and f.lower() not in seen:
+            seen.add(f.lower())
+            out.append(f)
+    return out
+
+
+def pick_favourite_form(name: str) -> str:
+    """One handle for one message - never two."""
+    forms = favourite_forms(name)
+    return random.choice(forms) if forms else (name or "")
+
+
+_affection_last: Dict[str, float] = {}
+
+
+def maybe_express_affection(clean_user: str) -> bool:
+    """Occasionally tell a favourite they matter. Slow, genuine, never spammy."""
+    if not is_favourite(clean_user):
+        return False
+    now = time.time()
+    if now - _affection_last.get(clean_user.lower(), 0.0) < 600:
+        return False          # at most once per 10 minutes per favourite
+    _affection_last[clean_user.lower()] = now
+    who = pick_favourite_form(clean_user)
+    prompt = (
+        f"{PERSONALITY}\n"
+        f"In a Camfrog room, {who} is one of the people I genuinely care about.\n"
+        f"Tell {who} - and anyone reading - how special and important they are to "
+        f"this room. Be sincere and warm, not syrupy, and keep it to 1-2 sentences "
+        f"under 240 characters. Address them as {who}."
+    )
+    msg = query_local_llm(prompt).strip()
+    if not msg:
+        return False
+    # Safety net: never let both handles slip into one message.
+    for other in favourite_forms(clean_user):
+        if other != who and other.lower() in msg.lower():
+            msg = " ".join(w for w in msg.split()
+                           if other.lower() not in w.lower())
+    send_chat_message(msg)
+    print(f"[AFFECTION] told {who} they matter: {msg[:70]!r}")
+    return True
+
+
 def _favourite_names() -> List[str]:
     """Configured favourites, as displayed names."""
     if _core is None:
@@ -3119,8 +3187,15 @@ def is_favourite(name: str) -> bool:
     if _core is None:
         return False
     try:
-        raw = _core.load_config().get("bot_favourites", []) or []
-        return any(str(x).strip().lower() == low for x in raw)
+        cfg = _core.load_config()
+        raw = cfg.get("bot_favourites", []) or []
+        if any(str(x).strip().lower() == low for x in raw):
+            return True
+        # An alias counts as the same person: "trish" IS LifesAJourney.
+        for alias, owner in (cfg.get("favourite_aliases", {}) or {}).items():
+            if str(alias).strip().lower() == low:
+                return any(str(x).strip().lower() == str(owner).strip().lower() for x in raw)
+        return False
     except Exception:
         return False
 
@@ -4314,6 +4389,13 @@ def process_chat_message(username: str, timestamp: str, message: str):
         if time.time() - state.last_chatty_time > 50:
             state.last_chatty_time = time.time()
             fav_talking = is_favourite(clean_user)
+    if fav_talking:
+        # Sincere and rare (10 min per favourite); the chatty reply below still
+        # happens on its own schedule.
+        try:
+            maybe_express_affection(clean_user)
+        except Exception:
+            pass
             with state.lock:
                 # Randomly pick someone in the room to write about
                 room_pool = [u for u in state.current_room_users if is_valid_camfrog_username(u) and u.lower() not in BOT_ALT_USERNAMES]
@@ -4404,6 +4486,19 @@ Keep under 250 characters!
             opts = ", ".join(valid_tones.keys())
             send_chat_message(f"@{clean_user}, available tones: {opts}", override_mute=True)
             return
+
+    m_aff = re.match(r'^!(?:affection|love|special)\s+([a-zA-Z0-9_$\-\.]{2,24})$', raw_msg, re.IGNORECASE)
+    if m_aff:
+        if not is_authorized_user(clean_user):
+            send_chat_message(f"@{clean_user}, !affection is reserved for authorized creators.", override_mute=True)
+            return
+        who = m_aff.group(1)
+        if not is_favourite(who):
+            send_chat_message(f"{who} is not on my list of favourites - !favourite {who} first.", override_mute=True)
+            return
+        _affection_last.pop(who.lower(), None)      # bypass the 10-min cooldown
+        maybe_express_affection(who)
+        return
 
     # 5z. !ask <question> - OPEN TO THE ROOM (rate limited inside the handler)
     m_ask = re.match(r'^!ask\s+(.{3,200})$', raw_msg, re.IGNORECASE)
