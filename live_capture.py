@@ -121,3 +121,36 @@ def shared(prefer_dxcam: bool = True) -> LiveCapture:
         if _SHARED is None:
             _SHARED = LiveCapture(prefer_dxcam=prefer_dxcam)
         return _SHARED
+
+
+# ------------------------------------------------------------------------------
+# Rollout decision (measured, 2026-10-01, 2560x1440)
+# ------------------------------------------------------------------------------
+# scenario                       pyautogui    dxcam    speedup
+#   mic strip capture              29.40ms   1.58ms     18.6x
+#   chat 3-line capture            29.46ms   1.30ms     22.6x
+#   chat capture + OCR end-to-end 161.80ms 126.00ms      1.28x
+#   IDENTITY speaker-name OCR      99.10ms  71.50ms      1.39x
+#
+# Capture really is ~20x faster, but OCR is CPU compute, so the end-to-end gain
+# is only ~1.3x. Accuracy is NOT reliably equal, which is why this is opt-in:
+#   * speaker name misread once: 'jordanjroc' -> 'jordanjrac' (and read
+#     'ChrisMole' correctly on another sample) - inconsistent, and the name is
+#     the signal that decides whether we interrupt a human;
+#   * chat OCR dropped a timestamp: 'Players_Lounge1 7:07 PM' -> 'Players_Lounge1',
+#     which loses information the parser uses.
+#
+# So: use live_capture for the VISUAL status window, where a human is looking.
+# Leave the bot's identity and chat parsing on pyautogui until dxcam rendering
+# is proven stable on this layout.
+DEFAULT_USE_DXCAM_FOR_OCR = False
+
+
+def ocr_enabled() -> bool:
+    """True only if the operator has explicitly opted in to dxcam OCR."""
+    try:
+        import kaekae_core as _core
+        return bool(_core.load_config().get("use_dxcam_for_ocr",
+                                           DEFAULT_USE_DXCAM_FOR_OCR))
+    except Exception:
+        return DEFAULT_USE_DXCAM_FOR_OCR

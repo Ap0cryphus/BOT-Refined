@@ -84,7 +84,10 @@ def main() -> int:
     bo = max(tb["y"], flow["top"] + flow["height"], bubble["top"] + bubble["height"]) + args.pad
     box = (int(l), int(t), int(r - l), int(bo - t))
 
-    cam = load_cam()
+    # Share the single permitted dxcam instance rather than creating another:
+    # dxcam allows one per output and a second create() silently breaks both.
+    import live_capture as _lc
+    cap = _lc.shared()
     root = tk.Tk()
     root.title("KaeKae - live mic status")
     root.configure(bg="#101014")
@@ -96,7 +99,7 @@ def main() -> int:
                     bg="#101014", fg="#d8d8e0", font=("Consolas", 10))
     info.pack(padx=10, pady=(0, 8), fill="x")
 
-    state = {"frames": 0, "fps": 0.0, "last": time.time(), "cam": "dxcam" if cam else "pyautogui"}
+    state = {"frames": 0, "fps": 0.0, "last": time.time(), "cam": cap.backend}
     stop = threading.Event()
 
     from PIL import Image, ImageTk
@@ -104,7 +107,8 @@ def main() -> int:
     def tick():
         if stop.is_set():
             return
-        arr = grab(cam, box)
+        cap.refresh()
+        arr = cap.region(box)
         if arr is not None:
             try:
                 im = Image.fromarray(arr)
@@ -162,11 +166,10 @@ def main() -> int:
         pass
     finally:
         stop.set()
-        if cam is not None:
-            try:
-                cam.release()
-            except Exception:
-                pass
+        try:
+            cap.close()
+        except Exception:
+            pass
     return 0
 
 
