@@ -3094,6 +3094,32 @@ def get_ignored_names() -> Set[str]:
     return names
 
 
+# ------------------------------------------------------------------------------
+# Favourites - people the bot is fond of. Configurable, hot-reloaded.
+# Two effects, both deliberately mild:
+#   * they are never the TARGET of a recorded moderation action we author
+#   * they get a warmer opener in spontaneous chat
+# The bot does NOT pick fights on their behalf - being a favourite must never
+# make it argue with someone, or it turns the room into a permanent brawl.
+# ------------------------------------------------------------------------------
+def is_favourite(name: str) -> bool:
+    low = (name or "").strip().lower()
+    if not low:
+        return False
+    if _core is None:
+        return False
+    try:
+        raw = _core.load_config().get("bot_favourites", []) or []
+        return any(str(x).strip().lower() == low for x in raw)
+    except Exception:
+        return False
+
+
+def favourite_greeting(name: str) -> str:
+    """Warm opener used only for spontaneous chatty replies."""
+    return f"{name}! "
+
+
 def is_ignored_name(name: str) -> bool:
     """True when a name is on the ignore list (moderation, chat and speaker paths)."""
     low = (name or "").strip().lower()
@@ -4188,15 +4214,24 @@ def process_chat_message(username: str, timestamp: str, message: str):
     if is_chatty and not raw_msg.startswith("!") and random.random() < 0.25:
         if time.time() - state.last_chatty_time > 50:
             state.last_chatty_time = time.time()
+            fav_talking = is_favourite(clean_user)
             with state.lock:
                 # Randomly pick someone in the room to write about
                 room_pool = [u for u in state.current_room_users if is_valid_camfrog_username(u) and u.lower() not in BOT_ALT_USERNAMES]
                 picked = random.choice(room_pool) if room_pool else clean_user
 
+            if fav_talking:
+                # A favourite is always the subject when they speak, so they get a
+                # reply rather than having the bot chime in about a stranger.
+                picked = clean_user
+                tone_line = (f"{clean_user} is one of your favourites. Be warm, "
+                             f"affectionate and playful with them specifically.")
+
             prompt = f"""{PERSONALITY}
 You are KaeKae in chatty mode in chatroom [{state.current_focused_room}].
 The room has active users: {', '.join(room_pool[:6])}.
 You randomly chose to write about or chime in on: {picked}.
+{tone_line if fav_talking else ""}
 {clean_user} just typed: "{raw_msg}".
 Chime in with a funny, preppy, valley-girl 1-sentence thought addressing or mentioning {picked}.
 Keep under 250 characters!
@@ -4261,9 +4296,51 @@ Keep under 250 characters!
             send_chat_message(f"@{clean_user}, available tones: {opts}", override_mute=True)
             return
 
+    # 6z. Favourites (Authorized Only): people the bot is fond of
+    m_fav_add = re.match(r'^!favou?rite\s+([a-zA-Z0-9_$\-\.]{2,24})$', raw_msg, re.IGNORECASE)
+    if m_fav_add:
+        if not is_authorized_user(clean_user):
+            send_chat_message(f"@{clean_user}, !favourite is reserved for authorized creators.", override_mute=True)
+            return
+        who = m_fav_add.group(1)
+        if _core is not None:
+            cfg = _core.load_config()
+            names = [str(x) for x in (cfg.get("bot_favourites", []) or [])]
+            if any(n.lower() == who.lower() for n in names):
+                send_chat_message(f"{who} is already one of mine.", override_mute=True)
+                return
+            names.append(who)
+            _core.save_config({"bot_favourites": names}, announce=False)
+            send_chat_message(f"{who} is one of mine now. I'll be warm with them and I won't diss them.",
+                              override_mute=True)
+            print(f"[FAV] added {who}")
+        return
+
+    m_fav_del = re.match(r'^!unfavou?rite\s+([a-zA-Z0-9_$\-\.]{2,24})$', raw_msg, re.IGNORECASE)
+    if m_fav_del:
+        if not is_authorized_user(clean_user):
+            send_chat_message(f"@{clean_user}, !unfavourite is reserved for authorized creators.", override_mute=True)
+            return
+        who = m_fav_del.group(1)
+        if _core is not None:
+            cfg = _core.load_config()
+            names = [str(x) for x in (cfg.get("bot_favourites", []) or [])]
+            keep = [n for n in names if n.lower() != who.lower()]
+            if len(keep) == len(names):
+                send_chat_message(f"{who} was not one of mine.", override_mute=True)
+                return
+            _core.save_config({"bot_favourites": keep}, announce=False)
+            send_chat_message(f"OK, no longer treating {who} as a favourite.", override_mute=True)
+        return
+
     # 7. Diss Trigger: !diss [USERNAME] (Minute interval roasting loop)
     if msg_lower.startswith("!diss"):
         target_arg = raw_msg[5:].strip()
+        if target_arg and is_favourite(target_arg):
+            send_chat_message(f"I'm not dissing {target_arg} - they're one of mine. Try another target.",
+                              override_mute=True)
+            print(f"[DISS] refused: {target_arg} is a favourite")
+            return
         handle_diss_command(clean_user, target_arg)
         return
 

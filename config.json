@@ -99,6 +99,9 @@
   "qwen_language": "English",
   "trigger_max_age_s": 600,
   "broadcast_gap_seconds": 2.5,
-  "mic_test_phrase": "I'm getting so trashed today it's not even going to be funny",
-  "use_dxcam_for_ocr": false
+  "mic_test_phrase": "suck my dick in the camfrog chatroom",
+  "use_dxcam_for_ocr": false,
+  "bot_favourites": [
+    "LifesAJourney"
+  ]
 }
