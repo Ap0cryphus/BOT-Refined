@@ -304,6 +304,45 @@ def save_config(updates: Dict[str, Any], announce: bool = True) -> bool:
 
 
 # ------------------------------------------------------------------------------
+# Session state - transient by design
+# ------------------------------------------------------------------------------
+SESSION_MARKER = "session_active.json"
+
+
+def reset_transient_state() -> Dict[str, Any]:
+    """Clears the outbound gate and broadcast queue ONCE per boot.
+
+    Triggers are deliberately NOT remembered between restarts: a fresh launch
+    should not be blocked by !say lines issued in a previous session. The
+    session marker keeps this to once, so Terminal 2 starting a second later
+    cannot wipe a live session's gates.
+    """
+    cleared: Dict[str, Any] = {}
+    try:
+        if os.path.exists(SESSION_MARKER):
+            return {"skipped": True}
+        locked_update(SESSION_MARKER, lambda _d: {
+            "started": time.time(), "pid": os.getpid()}, {})
+    except Exception:
+        pass
+    for store in (STORE_OUTBOUND_GATE, STORE_BROADCAST_QUEUE):
+        try:
+            path = ROOT / store
+            if path.exists():
+                path.unlink()
+                cleared[store] = "removed"
+            else:
+                cleared[store] = "absent"
+        except Exception as e:
+            cleared[store] = f"error: {e}"
+    if cleared:
+        try:
+            log_event("session", action="reset", cleared=json.dumps(cleared))
+        except Exception:
+            pass
+    return cleared
+
+# ------------------------------------------------------------------------------
 # Telemetry - structured JSONL so behaviour can be analysed after a live run
 # ------------------------------------------------------------------------------
 def log_event(event: str, **fields: Any) -> None:

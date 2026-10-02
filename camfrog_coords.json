@@ -1,23 +1,31 @@
 {
   "active_speaker_ocr_region": {
-    "left": 1470,
-    "top": 550,
-    "width": 240,
-    "height": 34
+    "left": 1504,
+    "top": 1174,
+    "width": 180,
+    "height": 28
   },
   "chat_input": {
     "x": 1446,
-    "y": 603
+    "y": 1220
   },
   "talk_button": {
-    "x": 1331,
-    "y": 565
+    "x": 1326,
+    "y": 1182
   },
   "audio_flow_region": {
     "left": 1358,
-    "top": 548,
+    "top": 1165,
     "width": 96,
     "height": 34
   },
-  "active_speaker_region_note": "Re-aligned 10/01 against the live room window (L=1273,T=0). The old 1504/557/180x28 crop caught only 91 dark px and OCR'd nothing; 1470/550/240x34 catches 283 dark px and reads the name reliably."
+  "active_speaker_region_note": "Re-aligned 10/01 17:40. The old 1470/550/240x34 crop returned 0 dark pixels because the room window grew from 1294x782 to 1294x1399, pushing the Talk strip down ~600px - that stale rect is what made the old ink gate report a speaking bubble as EMPTY. This absolute rect is now only a FALLBACK: cef_probe.query_speaker_ocr() derives its crop from the live Talk-button rect on every call, so resizing the window cannot break it again.",
+  "chat_feed_ocr_region": {
+    "left": 1283,
+    "top": 168,
+    "width": 1000,
+    "height": 380
+  },
+  "chat_feed_region_note": "FALLBACK ONLY - ocr_capture.derive_feed_region() is authoritative and recomputes the chat feed from the live Camfrog window rect on every start, because the window resizes (observed 1294x782 -> 1294x1399) and a cached rect silently reads a blank strip. The numbers below were calibrated 10/01 at window L=1273 T=0 1294x782 and are kept only so a failed window lookup still has something to try. Do not tune the OCR path against them.",
+  "_layout_note": "Recalibrated 2026-10-01: Camfrog window grew from 782 to 1399 tall; controls moved +617px in Y (talk 552->1169)."
 }

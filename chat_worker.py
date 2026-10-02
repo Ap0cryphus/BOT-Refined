@@ -39,6 +39,9 @@ print("=" * 76 + "\n")
 import kaekae_bot
 
 kaekae_bot.AUDIO_RECORD_ENABLED = False
+
+# Triggers are not remembered between restarts; clear once per boot.
+core.reset_transient_state()
 kaekae_bot.CHAT_SEND_MODE = "direct"
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ import sys
 import time
 import json
 import threading
+import traceback
 
 # Identify ourselves for the talk-state mirror
 os.environ.setdefault("KAEKAE_TERMINAL", "t2")
@@ -52,6 +53,9 @@ except Exception:
     core = None
 
 AUDIO_OUTPUT_DEVICE = get_configured_output_device()
+
+# Triggers are not remembered between restarts; clear once per boot.
+core.reset_transient_state()
 
 print(f"  Target Audio Device  : '{AUDIO_OUTPUT_DEVICE}'")
 if core is not None:
@@ -379,7 +383,31 @@ def start_room_audio_listener():
         print(f"[AUDIO WORKER] Hotkey listener notice: {e}")
 
     if hasattr(kb, "voice_listener_worker"):
-        kb.voice_listener_worker()
+        # SUPERVISOR. voice_listener_worker is this process's entire reason to
+        # exist and it is a bare blocking loop. Any exception inside it (audio
+        # device drop, stream reset, STT backend hiccup) propagated straight
+        # out of __main__, the process exited, and the Terminal 2 window
+        # closed - taking transcription, wake-word detection and every queued
+        # broadcast down with it. Restart with backoff instead of dying.
+        backoff = 3.0
+        restarts = 0
+        while not _stop.is_set():
+            try:
+                kb.voice_listener_worker()
+                if _stop.is_set():
+                    break
+                restarts += 1
+                print(f"[AUDIO WORKER] Voice listener returned unexpectedly "
+                      f"(restart #{restarts}); restarting in {backoff:.0f}s.")
+            except Exception as e:
+                if _stop.is_set():
+                    break
+                restarts += 1
+                traceback.print_exc()
+                print(f"[AUDIO WORKER] Voice listener crashed: {e} "
+                      f"(restart #{restarts}); retrying in {backoff:.0f}s.")
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 30.0)
     else:
         print("[AUDIO WORKER ERROR] voice_listener_worker not found; queue consumer still running.")
         while not _stop.is_set():
