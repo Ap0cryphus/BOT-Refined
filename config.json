@@ -98,5 +98,6 @@
   "talk_min_audio_fraction": 0.5,
   "qwen_language": "English",
   "trigger_max_age_s": 600,
-  "broadcast_gap_seconds": 2.5
+  "broadcast_gap_seconds": 2.5,
+  "mic_test_phrase": "I'm getting so trashed today it's not even going to be funny"
 }

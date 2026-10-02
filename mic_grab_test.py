@@ -26,7 +26,8 @@ def log(msg: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--phrase", default=DEFAULT_PHRASE)
+    ap.add_argument("--phrase", default=None,
+                    help="defaults to config mic_test_phrase (no shell quoting needed)")
     ap.add_argument("--attempts", type=int, default=12)
     ap.add_argument("--wait", type=float, default=20.0,
                     help="seconds to keep retrying the grab")
@@ -36,6 +37,8 @@ def main() -> int:
     ap.add_argument("--fast", action="store_true", help="continuous re-press battle mode")
     ap.add_argument("--hold-ms", type=float, default=60.0,
                     help="mouse-down duration per press (default 60)")
+    ap.add_argument("--patience", type=float, default=12.0,
+                    help="seconds to keep contending before giving up (users block a lingering bot)")
     ap.add_argument("--jitter", type=float, default=0.45,
                     help="randomise hold/gap by +/-this fraction to avoid a rhythmic pattern")
     ap.add_argument("--gap-ms", type=float, default=110.0,
@@ -43,6 +46,12 @@ def main() -> int:
     ap.add_argument("--no-audio", action="store_true")
     ap.add_argument("--voice", default="en-US-AvaNeural")
     args = ap.parse_args()
+    if not args.phrase:
+        try:
+            import kaekae_core as _core
+            args.phrase = _core.load_config().get("mic_test_phrase") or DEFAULT_PHRASE
+        except Exception:
+            args.phrase = DEFAULT_PHRASE
 
     try:
         import cef_probe as cp
@@ -157,9 +166,17 @@ def main() -> int:
         polls = 0
         flow_presses = 0
         win_at = None
+        _spoken = False
         _th = None
         t0 = time.time()
         while time.time() - t0 < args.wait and flow_presses < args.attempts * 40:
+            # Linger is what gets a bot blocked. Cap the WHOLE contest, not just
+            # the free-mic path: a rival holding the mic is exactly when we must
+            # back off rather than keep clicking on top of them.
+            if time.time() - t0 > args.patience:
+                log("  gave up after %.1fs - contending with a rival invites a "
+                    "block; stopping now" % (time.time() - t0))
+                break
             # Stop fighting when there is nothing to fight for. If nobody is
             # transmitting, rapid re-pressing is pure noise and only invites
             # flood protection - take the free mic with a single press instead.
@@ -169,6 +186,13 @@ def main() -> int:
                     # Press AND HOLD. A quick tap (down+up) never actually
                     # takes a push-to-talk mic, so the name bubble stayed empty
                     # and this loop livelocked. Holding is what wins the mic.
+                    waited = time.time() - t0
+                    # Users block a bot that lingers. If a rival keeps the mic,
+                    # say so plainly and give up rather than clicking on.
+                    if waited > args.patience:
+                        log("  gave up after %.1fs - a rival held the mic the whole "
+                            "time and users may block us for lingering" % waited)
+                        break
                     log("  mic is FREE (%s) - pressing and HOLDING" % st)
                     # ORDER MATTERS, measured in a single-mic room:
                     # pressing and THEN starting audio LOSES the mic
