@@ -86,6 +86,7 @@ CONFIG_FILE = os.path.join(_PROJECT_ROOT, "config.json")
 # UI chrome / non-speaker labels. Deliberately does NOT contain KaeKae's own
 # names: the verifier MUST be able to see our own name as the active speaker,
 # which is the only proof that we actually won the microphone.
+_CLOCK_RE = re.compile(r'^\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?\s*$', re.IGNORECASE)
 IGNORED_NAMES = {
     "talk", "mute", "unmute", "push-to-talk", "hands-free", "unknown", "unknown speaker",
     "_noname_", "noname", "camfrog",
@@ -105,50 +106,52 @@ def _bot_display_names() -> list:
     return ["kaekae", "kaekae_toad", "kaekaebot-camfrogaiassistant"]
 
 
-def is_bot_name_strict(text: str) -> bool:
+def _norm_ocr_name(text: str) -> str:
+    """Lowercase, alphanumeric-only. OCR drops or mangles underscores, so
+    'KaeKae_Toad', 'KaeKae Toad' and 'KaeKaeToad' must all normalise equal."""
+    return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
+
+
+def is_bot_name_strict(text: str, threshold: float = 0.85) -> bool:
     """Ownership-grade identity check for the active-speaker bubble.
 
-    is_bot_name() is a loose substring match and is right for CHAT filtering,
-    where seeing our name anywhere in the message is fine. It is WRONG for
-    claiming a microphone. During a battle the bubble renders several names
-    run together - a real capture returned 'KaeKaeToadgiShtickie', our name
-    glued to $htickie's - and a substring match happily returns True even when
-    the rival owns the mic and ours is merely a leftover.
+    is_bot_name() is a loose substring match and is right for CHAT filtering.
+    It is WRONG for claiming a microphone.
 
-    Camfrog lists our own name FIRST, so this anchors on the leading token and
-    requires that token to genuinely start with one of our display names.
-    'kaekae' being a configured alias is what makes the OCR variants
-    (KaeKaeToad, KaeKae Toad, kaekaetoad, SkaekaeToad) all resolve."""
-    if not text:
+    The previous strict form anchored on the LEADING token, which still accepted
+    a real capture of 'KaeKaeToadgiShtickie' - our name glued to $htickie's.
+    That is unsafe: during a battle Camfrog shows a QUEUED name too, so our
+    name appearing first does not prove we won; it only proves we are in the
+    queue. Claiming a win on that basis is how the bot interrupts a human.
+
+    So the WHOLE normalised string must resemble a single display name. A clean
+    read scores 1.00 and is accepted; a merged blob scores ~0.67 and is
+    rejected, which is the safe direction - we keep pressing instead of talking
+    over someone.
+    """
+    norm = _norm_ocr_name(text)
+    if not norm:
         return False
-    low = str(text).strip().lower()
-    if not low:
-        return False
-    # strip currency/role glyphs OCR turns $ into S or similar
-    cleaned = re.sub(r"^[^a-z]+", "", low)
-    first = re.split(r"[^a-z0-9]+", cleaned)[0] if cleaned else ""
-    if not first:
-        return False
-    # OCR sometimes renders a leading glyph as a letter ('$htickie' came back
-    # as 'Shtickie'), so also try the token with one stray leading char dropped.
-    # This cannot manufacture a false positive: the remainder must still be
-    # anchored to the START of a configured name, and a rival's name leading
-    # the bubble will not match after one character.
-    candidates = [first] + ([first[1:]] if len(first) > 1 and not first[0].isdigit() else [])
-    for cand in candidates:
-        for bot in _bot_display_names():
-            b = re.sub(r"[^a-z0-9]+", "", str(bot).lower())
-            if b and cand.startswith(b):
-                return True
+    from difflib import SequenceMatcher
+    # Two conditions, because each catches a different impostor:
+    #   1. the string must START with one of our names - this rejects a rival
+    #      who is merely NAMED like us ('NotKaeKaeToad');
+    #   2. the WHOLE string must resemble that single name - this rejects a
+    #      battle blob where Camfrog renders our queued name glued to a
+    #      rival's ('KaeKaeToadgiShtickie').
+    # Either alone is insufficient: (1) alone accepted the merged blob, (2)
+    # alone accepted NotKaeKaeToad.
+    first = re.split(r"[^a-z0-9]+", str(text).strip().lower().lstrip("^$s"))[0] if text else ""
+    for bot in _bot_display_names():
+        b = _norm_ocr_name(bot)
+        if not b:
+            continue
+        starts = norm.startswith(b)
+        if not starts:
+            continue
+        if SequenceMatcher(None, norm, b).ratio() >= threshold:
+            return True
     return False
-
-
-def is_bot_name(name: str) -> bool:
-    """True when `name` is one of KaeKae's own display names."""
-    if not name:
-        return False
-    low = str(name).strip().lower()
-    return any(b and (low == b or low in b or b in low) for b in _bot_display_names())
 
 
 def is_unknown_speaker(name: str) -> bool:
@@ -351,63 +354,123 @@ class CamfrogCEFProbe:
             pass
         return None
 
-    def query_speaker_uia(self) -> Optional[str]:
-        """
-        Queries the Chromium accessibility tree exposed by camfrog_cef.exe via UIA.
-        Extracts active speaker name element situated to the right of the audio controls.
-        """
+    # Short-lived cache of the UIA node list. Walking descendants() across a
+    # Chromium tree costs seconds, and the worker polls at 0.08s, so re-walking
+    # it every tick was the real throughput problem (7 samples per 25s).
+    _UIA_TTL = 0.35
+    _uia_cache = None
+    _uia_cache_at = 0.0
+
+    def _uia_nodes(self):
+        """(type, name, class_name, rect) tuples, cached for a few hundred ms."""
+        now = time.time()
+        # Instance attrs, not globals: `global` would resolve them at module
+        # scope and miss the class-level defaults entirely.
+        if self._uia_cache is not None and (now - self._uia_cache_at) < self._UIA_TTL:
+            return self._uia_cache
         if not self.window_handle:
             if not self.attach_uia():
-                return None
-
+                return []
+        out = []
         try:
-            # Stage bar elements are situated in the top third of the room window
-            win_rect = self.window_handle.rectangle()
-            min_y = win_rect.top
-            max_y = win_rect.top + int(win_rect.height() * 0.40)
-
-            # 1. Search for explicit "Talking: <username>" or "<username> is talking" labels
-            for ctrl in self.window_handle.descendants():
-                txt = (ctrl.element_info.name or ctrl.window_text() or "").strip()
-                if not txt:
+            # Ask UIA for the CButtonTS controls directly instead of walking
+            # all ~1400 nodes and filtering in Python. Measured on this room:
+            # descendants() 921ms -> descendants(class_name=...) 237ms, and the
+            # per-node element_info reads drop from 1393 to 64. Early exit is
+            # NOT an option - the 64 buttons are spread from index 0 to 1401.
+            for c in self.window_handle.descendants(class_name="CButtonTS"):
+                try:
+                    ei = c.element_info
+                    out.append((ei.control_type or "", (ei.name or "").strip(),
+                                ei.class_name or "", c.rectangle()))
+                except Exception:
                     continue
-                low = txt.lower()
-                if "talking:" in low or "speaking:" in low or "on mic:" in low:
-                    m = re.search(r'(?:talking|speaking|on mic):\s*([a-zA-Z0-9_\-\$]{2,20})', txt, re.IGNORECASE)
-                    if m:
-                        cand = m.group(1).strip()
-                        if cand.lower() not in IGNORED_NAMES:
-                            return cand
-                if " is talking" in low:
-                    m = re.search(r'([a-zA-Z0-9_\-\$]{2,20})\s+is talking', txt, re.IGNORECASE)
-                    if m:
-                        cand = m.group(1).strip()
-                        if cand.lower() not in IGNORED_NAMES:
-                            return cand
-
-            # 2. Search for Talk button and adjacent speaker label
-            talk_rect = None
-            for ctrl in self.window_handle.descendants():
-                if ctrl.element_info.control_type == "Button":
-                    name = (ctrl.element_info.name or "").strip().lower()
-                    if name == "talk" or "push-to-talk" in name:
-                        talk_rect = ctrl.rectangle()
-                        break
-
-            if talk_rect:
-                # Active speaker name sits directly adjacent to talk button (within 40px vertical, 250px horizontal)
-                for ctrl in self.window_handle.descendants():
-                    if ctrl.element_info.control_type in ("Text", "Button"):
-                        rect = ctrl.rectangle()
-                        if abs(rect.top - talk_rect.top) <= 35 and 0 <= (rect.left - talk_rect.right) <= 220:
-                            raw = (ctrl.element_info.name or ctrl.window_text() or "").strip()
-                            clean = re.sub(r'[^a-zA-Z0-9_\-\$]', '', raw.split()[0] if raw.split() else "")
-                            if clean and 2 <= len(clean) <= 20 and clean.lower() not in IGNORED_NAMES:
-                                return clean
         except Exception:
             self.window_handle = None
+            return []
+        self._uia_cache, self._uia_cache_at = out, now
+        return out
 
-        return None
+    def query_speaker_uia(self, stable: int = 1) -> Optional[str]:
+        """Reads the active speaker from Camfrog's native accessibility tree.
+
+        The speaker is a real CEF control - a CButtonTS whose accessible name IS
+        the username - sitting immediately right of the Talk button. The app is
+        reporting its own state, so this is exact where OCR only approximates it.
+
+        The Talk button is located BY CLASS AND NAME on every call instead of
+        from cached coordinates: the room window has been observed resizing from
+        1294x782 to 1294x1399, which moves the Talk strip ~600px and silently
+        invalidates any stored rect.
+
+        `stable` requires the same name on N consecutive reads, suppressing the
+        mid-render truncations UIA exposes while a bubble repaints (observed:
+        'itscalledsofi' -> 'itscalledsofia').
+        """
+        nodes = self._uia_nodes()
+        if not nodes:
+            return None
+        talk = None
+        for ctype, name, cls, rect in nodes:
+            if cls == "CButtonTS" and name.lower() in ("talk", "push-to-talk"):
+                talk = rect
+                break
+        if talk is None:
+            return None
+        best = None
+        for ctype, name, cls, rect in nodes:
+            if cls != "CButtonTS" or not name:
+                continue
+            if name.lower() in ("talk", "push-to-talk"):
+                continue
+            if abs(rect.top - talk.top) <= 30 and 0 <= (rect.left - talk.right) <= 260:
+                if best is None or rect.left < best[1]:
+                    best = (name, rect.left)
+        cand = best[0].strip() if best else ""
+        if not cand or cand.lower() in IGNORED_NAMES:
+            return None
+        if stable > 1:
+            prev = getattr(self, "_sp_prev", None)
+            self._sp_streak = (getattr(self, "_sp_streak", 0) + 1) if prev == cand else 1
+            self._sp_prev = cand
+            if self._sp_streak < stable:
+                return None
+        return cand
+
+    def query_speaker_ocr(self):
+        """OCR fallback for the speaker bubble, derived from the live Talk rect.
+
+        Only used when the native control is absent. The name renders LIGHT BLUE
+        on white, so the ink gate must be far lighter than a generic "dark
+        pixel" test: counting pixels < 128 scored a real name at 37-127px and an
+        EMPTY bubble at 0, which reads downstream as "the room is free" and
+        invites the bot to talk over whoever is actually speaking.
+        """
+        if not pyautogui:
+            return ""
+        nodes = self._uia_nodes()
+        talk = None
+        for ctype, name, cls, rect in nodes:
+            if cls == "CButtonTS" and name.lower() in ("talk", "push-to-talk"):
+                talk = rect
+                break
+        if talk is None:
+            return ""
+        # Measured by ink-column scan: the name glyphs occupy x = talk.right
+        # +121 .. +233. Starting at +30 pulled the green speaker icon into the
+        # crop, which OCR read as a leading letter ('eiAlex' for 'i_Alex').
+        region = (int(talk.right) + 121, int(talk.top) - 3, 120, int(talk.height()) + 6)
+        try:
+            import pytesseract
+            im = pyautogui.screenshot(region=region)
+            if sum(1 for p in im.convert("L").getdata() if p < 200) < 12:
+                return ""
+            im = im.resize((im.width * 4, im.height * 4))
+            im = im.convert("L").point(lambda p: 0 if p < 190 else 255, "1")
+            raw = pytesseract.image_to_string(im, config="--psm 7").strip()
+        except Exception:
+            return ""
+        return re.sub(r"[^A-Za-z0-9_$\-]", "", raw)
 
     def get_chat_messages(self, limit: int = 15) -> List[Dict[str, str]]:
         """
@@ -442,18 +505,114 @@ class CamfrogCEFProbe:
 
         return messages
 
-    def sample_active_speaker_once(self) -> Optional[str]:
-        """Runs the CEF detection pipeline (DevTools -> UIA). No OCR/screenshots."""
-        # 1. DevTools CDP
-        name = self.query_speaker_devtools()
+    def get_chat_events(self, limit: int = 200) -> List[Dict[str, str]]:
+        """Reads chat from the CEF UIA tree using the DOM's ACTUAL shape.
+
+        The legacy get_chat_messages() assumed a single "User: message" string.
+        This DOM never produces one: every message is three sibling nodes in
+        document order -
+
+            Hyperlink  Players_Lounge1          <- username, exposed as a link
+            Text      10:55 AM                 <- clock
+            Text      Welcome Back Moderator   <- body
+
+        Splitting those on ":" is what made the old reader emit garbage like
+        sender="11" text="08 AM" from the clock node alone. Walking the flat
+        ordered node list and reading the real structure is exact, which is what
+        makes CEF able to stay authoritative.
+
+        Join/Quit notices are two nodes too: the literal "Quit:"/"Join:" followed
+        by the name, and they carry no clock.
+        """
+        out: List[Dict[str, str]] = []
+        if not self.window_handle:
+            if not self.attach_uia():
+                return out
+        try:
+            flat = []
+            for ctrl in self.window_handle.descendants():
+                try:
+                    flat.append((ctrl.element_info.control_type or "",
+                                 (ctrl.element_info.name or "").strip()))
+                except Exception:
+                    continue
+        except Exception:
+            self.window_handle = None
+            return out
+
+        n = len(flat)
+        i = 0
+        while i < n:
+            ctype, name = flat[i]
+            low = name.lower()
+
+            # --- Join / Quit: "Quit:" then the name on the next node ---
+            if low in ("quit:", "join:"):
+                action = "quit" if low.startswith("quit") else "join"
+                who = ""
+                for j in range(i + 1, min(i + 3, n)):
+                    cand = flat[j][1]
+                    if cand and not _CLOCK_RE.match(cand) and cand.lower() not in (
+                            "quit:", "join:"):
+                        who = re.sub(r"[^A-Za-z0-9_$\-]", "", cand)[:32]
+                        break
+                if who and len(who) >= 2:
+                    out.append({"kind": "presence", "action": action, "user": who,
+                                "timestamp": "", "text": ""})
+                i += 1
+                continue
+
+            # --- A username node (Hyperlink) immediately followed by a clock ---
+            if _CLOCK_RE.match(name) and i > 0:
+                ptype, pname = flat[i - 1]
+                who = re.sub(r"[^A-Za-z0-9_$\-]", "", pname)[:32]
+                # Body is the next non-empty node that is not another clock.
+                body = ""
+                for j in range(i + 1, min(i + 3, n)):
+                    cand = flat[j][1]
+                    if not cand or _CLOCK_RE.match(cand):
+                        continue
+                    if cand.lower() in ("quit:", "join:"):
+                        break
+                    body = cand
+                    break
+                if who and len(who) >= 2 and body:
+                    out.append({"kind": "message", "user": who,
+                                "timestamp": _CLOCK_RE.match(name).group(0),
+                                "text": body})
+                    if len(out) >= limit:
+                        break
+            i += 1
+        return out
+
+    def sample_active_speaker_once(self, use_ocr: bool = True) -> Optional[str]:
+        """Native UIA control first; OCR only when that control is missing.
+
+        OCR is deliberately LAST: it costs a screenshot plus ~77ms of
+        recognition per call, and approximates a value the application already
+        publishes exactly. It is a fallback for when the accessibility control
+        disappears, not a co-equal source.
+        """
+        raw = self.query_speaker_uia()
+        if raw and raw.lower() not in IGNORED_NAMES:
+            # Hold the previously confirmed name for the single sample a new
+            # bubble needs to prove itself. Returning None here instead is
+            # what let the OCR fallback fire mid-repaint and emit garbage
+            # ('gfthatdudeyup' for 'that_dude_yup', '2Mephobia' for
+            # '*Mephobia*'): UIA drops out for one frame exactly when the
+            # bubble is half-drawn, and OCR then reads the half-drawn pixels.
+            prev = getattr(self, "_sp_confirmed", None)
+            if prev and prev != raw:
+                return prev
+            self._sp_confirmed = raw
+            return raw
+        # Only reach for pixels when the native control reports nothing at
+        # all - never merely because it is mid-transition.
+        if not use_ocr:
+            return None
+        name = self.query_speaker_ocr()
         if name and name.lower() not in IGNORED_NAMES:
             return name
-
-        # 2. CEF UIA Accessibility (this is the only real source now)
-        name = self.query_speaker_uia()
-        if name and name.lower() not in IGNORED_NAMES:
-            return name
-
         return None
 
     def _worker_loop(self):

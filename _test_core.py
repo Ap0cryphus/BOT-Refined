@@ -178,6 +178,19 @@ def run_tests():
           os.path.isabs(_cp.COORDS_FILE) and _cp.COORDS_FILE.endswith("camfrog_coords.json"),
           _cp.COORDS_FILE)
 
+    # --- T2e: strict identity for claiming a mic -------------------------
+    # Regression: a live battle produced 'KaeKaeToadgiShtickie' (our name glued
+    # to $htickie's). The old leading-token check accepted it, so the bot could
+    # claim a win it did not have and talk over a human. A queued name is not a
+    # won name.
+    import cef_probe as _cp2
+    for good in ("KaeKaeToad", "KaeKae_Toad", "kaekaetoad", "kAekaeTOADgix"):
+        check(f"strict accepts {good!r}", _cp2.is_bot_name_strict(good) is True)
+    for bad in ("KaeKaeToadgiShtickie", "Shtickie", "TheCroupier", "zakkaz", ""):
+        check(f"strict rejects {bad!r}", _cp2.is_bot_name_strict(bad) is False)
+    check("ocr normalisation folds separators",
+          _cp2._norm_ocr_name("KaeKae_Toad") == _cp2._norm_ocr_name("KaeKae Toad"))
+
     # --- T3: cross-process exclusive lock -------------------------------
     reset()
     try:
