@@ -1,8 +1,0 @@
-Traceback (most recent call last):
-  File "C:\Users\newbe\AIBot\mic_grab_test.py", line 227, in <module>
-    sys.exit(main())
-             ^^^^^^
-  File "C:\Users\newbe\AIBot\mic_grab_test.py", line 161, in main
-    log("GRAB OK (fast) - %d presses in %.2fs" % (flow_presses, win_at))
-        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~
-TypeError: must be real number, not NoneType

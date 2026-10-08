@@ -1,8 +1,0 @@
-Talk button: name='Talk ' class='CButtonTS' auto_id='1301'
-rect=1291,552 70x26
-Sampling for 100s at 0.12s.
->>> HOLD the Talk button for ~5s, release, then hold again.
-
-baseline: 23 nodes, pixel avg=33.92 hash=e030b76823c7
-
-Done. 217 polls -> logs\talkwatch_20261001.jsonl
