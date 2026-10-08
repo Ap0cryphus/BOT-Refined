@@ -1,7 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   CamfrogBotEngine,
   ROOM_TAB_POSITIONS,
+  ROOM_TAB_CLICK_POINTS,
+  CALIBRATED_UIA_RECTS,
+  IGNORED_USER_LIST_RECTS,
   RoomName,
   UIANode,
   cleanUsername,
@@ -16,34 +19,34 @@ import {
 } from './lib/camfrogBot';
 import {
   Send,
-  Play,
-  Terminal,
-  Database,
-  ShieldAlert,
   Mic,
+  MicOff,
   UserPlus,
   UserMinus,
   CheckCircle2,
   XCircle,
   RefreshCw,
   Search,
-  Lock,
-  Unlock,
+  Radio,
+  Copy,
+  Download,
+  Check,
 } from 'lucide-react';
+import { FIXED_CONFIG_PY, FIXED_UI_AUTOMATION_PY } from './lib/pythonFiles';
 
-type ActiveSection = 'monitor' | 'database' | 'uia' | 'rooms' | 'tests';
-type DbTableTab = 'users' | 'messages' | 'moderation' | 'grabs' | 'vault';
+type ActiveSection = 'monitor' | 'database' | 'uia' | 'rooms' | 'tests' | 'python_fix';
+type DbTableTab = 'users' | 'messages' | 'transcripts' | 'moderation' | 'grabs' | 'vault';
 
 const SAMPLE_QUICK_COMMANDS = [
   { label: '!triggers', cmd: '!triggers', sender: 'Stonerwayne1000' },
-  { label: '!chat (Enable Chat)', cmd: '!chat', sender: 'Stonerwayne1000' },
+  { label: '!transcribe (Audio On)', cmd: '!transcribe', sender: 'Stonerwayne1000' },
   { label: '!info on Stonerwayne1000', cmd: '!info on Stonerwayne1000', sender: 'Rosie' },
-  { label: '!who is irreplacable', cmd: '!who is irreplacable', sender: 'Stonerwayne1000' },
+  { label: '!who is Stonerwayne1000', cmd: '!who is Stonerwayne1000', sender: 'Rosie' },
   { label: '!grabs 24h', cmd: '!grabs 24h', sender: 'nico1ee' },
   { label: 'who kicked tedi4300?', cmd: 'who kicked tedi4300?', sender: 'Stonerwayne1000' },
   { label: '!suppress (Vault)', cmd: '!suppress', sender: 'Rosie' },
   { label: '!unsuppress (Restore)', cmd: '!unsuppress', sender: 'Rosie' },
-  { label: '!diss WutUpWattz', cmd: '!diss WutUpWattz', sender: 'Stonerwayne1000' },
+  { label: '!say Welcome to Players Lounge', cmd: '!say Welcome to Players Lounge', sender: 'Stonerwayne1000' },
   { label: '!unban User_2 (Mod Check)', cmd: '!unban User_2', sender: 'skracH_iLL_Man_' },
 ];
 
@@ -62,22 +65,54 @@ export function App() {
   const [messageInput, setMessageInput] = useState('!info on Stonerwayne1000');
   const [selectedRoom, setSelectedRoom] = useState<RoomName>('Players__Lounge');
 
-  // Moderation & Mic grab simulator inputs
+  // Moderation & Mic grab / Audio transcription simulator inputs
   const [modRawInput, setModRawInput] = useState('Mod_Alpha kicked Troll_99.');
   const [micUserInput, setMicUserInput] = useState('Stonerwayne1000');
-  const [micDurationInput, setMicDurationInput] = useState('35');
+  const [micDurationInput, setMicDurationInput] = useState('24');
+  const [micTranscriptInput, setMicTranscriptInput] = useState(
+    'Everyone on cam gets color in Players Lounge, keep the vibes good.'
+  );
   const [operatorInput, setOperatorInput] = useState('');
 
-  // UIA Coordinate tester
+  // Continuous live browser microphone Speech-to-Text recording state
+  const [isLiveListening, setIsLiveListening] = useState(false);
+  const [liveInterimText, setLiveInterimText] = useState('');
+  const [speechError, setSpeechError] = useState('');
+  const recognitionRef = useRef<any>(null);
+  const listenStartRef = useRef<number>(0);
+
+  // Hold-to-Talk button [l=1291,t=1169,r=1361,b=1195] state
+  const [isHoldingTalk, setIsHoldingTalk] = useState(false);
+  const holdStartRef = useRef<number>(0);
+
+  // UIA Coordinate tester defaulted to (1550, 50) -> Players__Lounge
   const [probeX, setProbeX] = useState('1550');
-  const [probeY, setProbeY] = useState('54');
+  const [probeY, setProbeY] = useState('50');
 
   // Unit tests state
   const [testResults, setTestResults] = useState<TestCaseResult[]>(() => runOfflineBotTests());
+  const [copiedFile, setCopiedFile] = useState<string>('');
 
-  // Derive live state from engine (re-evaluated on version bump)
+  const handleCopyPython = (filename: string, code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedFile(filename);
+    setTimeout(() => setCopiedFile(''), 2000);
+  };
+
+  const handleDownloadPython = (filename: string, code: string) => {
+    const blob = new Blob([code], { type: 'text/x-python' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Derive live state from engine
   const usersList = useMemo(() => Array.from(engine.store.users.values()), [engine, version]);
   const messagesList = useMemo(() => [...engine.store.messages].reverse(), [engine, version]);
+  const transcriptsList = useMemo(() => [...engine.store.audioTranscripts].reverse(), [engine, version]);
   const moderationList = useMemo(() => [...engine.store.moderationEvents].reverse(), [engine, version]);
   const micGrabsList = useMemo(() => [...engine.store.micGrabs].reverse(), [engine, version]);
   const suppressedList = useMemo(() => Array.from(engine.store.suppressedVault.values()), [engine, version]);
@@ -93,23 +128,93 @@ export function App() {
     });
   }, [messagesList, roomFilter, searchQuery]);
 
-  // Simulated UIA Control Tree nodes matching ui_automation.py expectations
+  // Continuous Web Speech API listener that attributes spoken audio to the active speaker on mic
+  const toggleLiveAudioCapture = () => {
+    if (isLiveListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+      setIsLiveListening(false);
+      setLiveInterimText('');
+      return;
+    }
+
+    const SpeechRecognitionCtor =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) {
+      setSpeechError(
+        'Browser SpeechRecognition API is unavailable in this browser; use the Simulated Continuous Audio Injector below to log transcripts.'
+      );
+      return;
+    }
+
+    try {
+      setSpeechError('');
+      const recognition = new SpeechRecognitionCtor();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      listenStartRef.current = Date.now();
+
+      recognition.onresult = (event: any) => {
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const res = event.results[i];
+          const text = res[0]?.transcript || '';
+          if (res.isFinal && text.trim()) {
+            const speaker = cleanUsername(engine.activeSpeaker || micUserInput) || 'Active_Speaker';
+            const elapsedSec = Math.max(2, Math.round((Date.now() - listenStartRef.current) / 1000));
+            listenStartRef.current = Date.now();
+            engine.store.recordMicGrab(
+              speaker,
+              elapsedSec,
+              undefined,
+              text.trim(),
+              engine.currentRoom,
+              engine.settings.continuous_audio_store
+            );
+            bump();
+          } else {
+            interim += text;
+          }
+        }
+        setLiveInterimText(interim);
+      };
+
+      recognition.onerror = (ev: any) => {
+        setSpeechError(`Microphone capture notice: ${ev.error || 'stopped'}`);
+        setIsLiveListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsLiveListening(false);
+        setLiveInterimText('');
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+      setIsLiveListening(true);
+    } catch (err) {
+      setSpeechError(`Could not start microphone recognition: ${String(err)}`);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
+
+  // Calibrated UIA Control Tree nodes matching exact coordinates provided by user
   const uiaNodes: UIANode[] = useMemo(() => {
     const baseNodes: UIANode[] = [
       {
-        id: 'win-root',
-        control_type: 'Window',
-        name: `${engine.currentRoom} - Video Chat Room`,
-        class_name: 'CamfrogRoomWindow',
-        left: 100,
-        top: 20,
-        right: 1820,
-        bottom: 1020,
-      },
-      {
         id: 'tab-roomlist',
-        control_type: 'Button',
-        name: 'Room List',
+        control_type: 'Button(50000)',
+        name: 'Room List Tab (Click @ 1390, 50)',
         class_name: 'CTabButton',
         left: 1313,
         top: 37,
@@ -118,8 +223,8 @@ export function App() {
       },
       {
         id: 'tab-players',
-        control_type: 'Button',
-        name: 'Players__Lounge',
+        control_type: 'Button(50000)',
+        name: 'Players__Lounge Tab (Click @ 1550, 50)',
         class_name: 'CTabButton',
         left: 1473,
         top: 37,
@@ -127,72 +232,97 @@ export function App() {
         bottom: 71,
       },
       {
-        id: 'tab-drama',
-        control_type: 'Button',
-        name: 'Drama_Central',
-        class_name: 'CTabButton',
-        left: 1633,
-        top: 37,
-        right: 1793,
-        bottom: 71,
+        id: 'pane-chat',
+        control_type: CALIBRATED_UIA_RECTS.chat_window.control_type,
+        name: "Chat Window (User's Text/Commands)",
+        class_name: 'CEFPaneControl',
+        left: CALIBRATED_UIA_RECTS.chat_window.rect[0],
+        top: CALIBRATED_UIA_RECTS.chat_window.rect[1],
+        right: CALIBRATED_UIA_RECTS.chat_window.rect[2],
+        bottom: CALIBRATED_UIA_RECTS.chat_window.rect[3],
       },
       {
         id: 'btn-talk',
-        control_type: 'Button',
-        name: 'Talk',
+        control_type: CALIBRATED_UIA_RECTS.talk_button.control_type,
+        name: 'Talk (Hold Press to Broadcast Audio)',
         class_name: 'CButtonTS',
-        left: 1460,
-        top: 860,
-        right: 1540,
-        bottom: 892,
+        left: CALIBRATED_UIA_RECTS.talk_button.rect[0],
+        top: CALIBRATED_UIA_RECTS.talk_button.rect[1],
+        right: CALIBRATED_UIA_RECTS.talk_button.rect[2],
+        bottom: CALIBRATED_UIA_RECTS.talk_button.rect[3],
       },
       {
         id: 'speaker-active',
-        control_type: 'Custom',
+        control_type: 'Custom(50025)',
         name: engine.activeSpeaker || '',
         class_name: 'CButtonTS',
-        left: 1555,
-        top: 862,
-        right: 1720,
-        bottom: 890,
+        left: 1368,
+        top: 1169,
+        right: 1545,
+        bottom: 1195,
       },
       {
-        id: 'chrome-ignored',
-        control_type: 'Text',
-        name: 'GIFTUsers2',
-        class_name: 'CEFToolbarLabel',
-        left: 1460,
-        top: 110,
-        right: 1620,
-        bottom: 134,
+        id: 'list-users',
+        control_type: CALIBRATED_UIA_RECTS.user_list.control_type,
+        name: 'User List Container (r=2559)',
+        class_name: 'CEFUserList',
+        left: CALIBRATED_UIA_RECTS.user_list.rect[0],
+        top: CALIBRATED_UIA_RECTS.user_list.rect[1],
+        right: CALIBRATED_UIA_RECTS.user_list.rect[2],
+        bottom: CALIBRATED_UIA_RECTS.user_list.rect[3],
+      },
+      // The 3 explicitly ignored ListItem(50007) bounding rectangles
+      {
+        id: 'ignored-1',
+        control_type: 'ListItem(50007)',
+        name: 'Section_Header_1',
+        class_name: 'ListItem',
+        left: IGNORED_USER_LIST_RECTS[0][0],
+        top: IGNORED_USER_LIST_RECTS[0][1],
+        right: IGNORED_USER_LIST_RECTS[0][2],
+        bottom: IGNORED_USER_LIST_RECTS[0][3],
+        ignored_reason: 'Explicitly Ignored Rect #1 [l=2303,t=141,r=2559,b=163]',
       },
       {
-        id: 'edit-chat',
-        control_type: 'Edit',
-        name: 'Chat Input Box',
-        class_name: 'CEFEditControl',
-        left: 120,
-        top: 930,
-        right: 1420,
-        bottom: 985,
+        id: 'ignored-2',
+        control_type: 'ListItem(50007)',
+        name: 'Section_Header_2',
+        class_name: 'ListItem',
+        left: IGNORED_USER_LIST_RECTS[1][0],
+        top: IGNORED_USER_LIST_RECTS[1][1],
+        right: IGNORED_USER_LIST_RECTS[1][2],
+        bottom: IGNORED_USER_LIST_RECTS[1][3],
+        ignored_reason: 'Explicitly Ignored Rect #2 [l=2303,t=207,r=2559,b=229]',
+      },
+      {
+        id: 'ignored-3',
+        control_type: 'ListItem(50007)',
+        name: 'Section_Header_3',
+        class_name: 'ListItem',
+        left: IGNORED_USER_LIST_RECTS[2][0],
+        top: IGNORED_USER_LIST_RECTS[2][1],
+        right: IGNORED_USER_LIST_RECTS[2][2],
+        bottom: IGNORED_USER_LIST_RECTS[2][3],
+        ignored_reason: 'Explicitly Ignored Rect #3 [l=2303,t=867,r=2559,b=889]',
       },
     ];
 
     usersList.slice(0, 8).forEach((u, idx) => {
+      const top = 240 + idx * 24;
       baseNodes.push({
         id: `roster-${u.username}`,
-        control_type: 'ListItem',
+        control_type: 'ListItem(50007)',
         name: u.username,
-        class_name: 'CRosterItem',
-        left: 1460,
-        top: 160 + idx * 28,
-        right: 1790,
-        bottom: 184 + idx * 28,
+        class_name: 'ListItem',
+        left: 2303,
+        top,
+        right: 2559,
+        bottom: top + 22,
       });
     });
 
     return baseNodes;
-  }, [engine.currentRoom, engine.activeSpeaker, usersList]);
+  }, [engine.activeSpeaker, usersList]);
 
   const handleSendChat = (e: React.FormEvent) => {
     e.preventDefault();
@@ -217,13 +347,21 @@ export function App() {
     bump();
   };
 
-  const handleLogMicGrab = (e: React.FormEvent) => {
+  const handleLogMicGrabWithTranscript = (e: React.FormEvent) => {
     e.preventDefault();
     const cleaned = cleanUsername(micUserInput);
     const dur = parseFloat(micDurationInput);
     if (!cleaned || Number.isNaN(dur) || dur <= 0) return;
-    engine.store.recordMicGrab(cleaned, dur);
+    engine.store.recordMicGrab(
+      cleaned,
+      dur,
+      undefined,
+      micTranscriptInput.trim() || undefined,
+      selectedRoom,
+      engine.settings.continuous_audio_store
+    );
     engine.activeSpeaker = cleaned;
+    setMicTranscriptInput('');
     bump();
   };
 
@@ -238,6 +376,9 @@ export function App() {
   const handleSwitchRoomByTab = (room: RoomName) => {
     engine.currentRoom = room;
     setSelectedRoom(room);
+    const [cx, cy] = ROOM_TAB_CLICK_POINTS[room];
+    setProbeX(String(cx));
+    setProbeY(String(cy));
     bump();
   };
 
@@ -280,7 +421,7 @@ export function App() {
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Live Monitor
+            Live Monitor &amp; Audio
           </button>
           <button
             type="button"
@@ -302,7 +443,7 @@ export function App() {
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            UIA Tree Inspector
+            Calibrated UIA Rects
           </button>
           <button
             type="button"
@@ -313,7 +454,18 @@ export function App() {
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Multi-Room Tabs
+            Tab Coordinates
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSection('python_fix')}
+            className={`py-1 transition-colors whitespace-nowrap ${
+              activeSection === 'python_fix'
+                ? 'text-white underline underline-offset-8 decoration-emerald-400 decoration-2'
+                : 'text-emerald-300 hover:text-white'
+            }`}
+          >
+            Python Fix (AIBot)
           </button>
           <button
             type="button"
@@ -367,10 +519,10 @@ export function App() {
               activeSection === sec ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
             }`}
           >
-            {sec === 'monitor' && 'Live Monitor'}
+            {sec === 'monitor' && 'Live & Audio'}
             {sec === 'database' && 'SQLite & Vault'}
-            {sec === 'uia' && 'UIA Tree'}
-            {sec === 'rooms' && 'Room Tabs'}
+            {sec === 'uia' && 'UIA Rects'}
+            {sec === 'rooms' && 'Tab Coords'}
             {sec === 'tests' && 'Tests'}
           </button>
         ))}
@@ -378,24 +530,27 @@ export function App() {
 
       {/* Main Content Container */}
       <main className="flex-1 max-w-[1400px] w-full mx-auto px-6 py-8 space-y-8">
-        {/* Top Summary Strip — Clean unboxed metadata + tabular figures */}
+        {/* Top Summary Strip */}
         <section className="border-b border-slate-800 pb-6 flex flex-col lg:flex-row lg:items-end justify-between gap-6">
           <div className="space-y-2 max-w-2xl">
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 font-mono">
-              <span>Backend: pywinauto (uia)</span>
+              <span>Chat Pane(50033): [1281,170,2299,1160]</span>
               <span aria-hidden="true">·</span>
-              <span>OCR / DXCam / Tesseract: Disabled</span>
+              <span>Talk Button(50000): [1291,1169,1361,1195]</span>
               <span aria-hidden="true">·</span>
-              <span>Active Room: {engine.currentRoom}</span>
+              <span>User List(50008): [2303,141,2559,1160]</span>
               <span aria-hidden="true">·</span>
-              <span>Speaker: {engine.activeSpeaker || 'Idle'}</span>
+              <span>
+                Audio Store: {engine.settings.continuous_audio_store ? 'Indexing to SQLite' : 'Paused'}
+              </span>
             </div>
             <h1 className="font-display text-2xl sm:text-3xl font-bold text-white tracking-tight">
-              Camfrog UI-Automation Bot &amp; Room Processor
+              Camfrog UI-Automation Bot &amp; Continuous Audio Store
             </h1>
             <p className="text-sm text-slate-300 leading-relaxed">
-              Reads chat events, presence updates, and strict moderation notices directly from Camfrog&apos;s Windows UI
-              Automation accessibility tree without screen capture or pixel guessing.
+              Combines fixed-coordinate tab switching <code className="text-slate-200">(1390, 50)</code> /{' '}
+              <code className="text-slate-200">(1550, 50)</code>, calibrated UIA control rectangles, and continuous
+              active-speaker audio transcription stored directly into each user&apos;s recall profile.
             </p>
           </div>
 
@@ -405,15 +560,15 @@ export function App() {
               <div className="text-2xl font-semibold text-white font-mono tabular-nums mt-0.5">{usersList.length}</div>
             </div>
             <div>
-              <div className="text-xs text-slate-400">Logged Messages</div>
+              <div className="text-xs text-slate-400">Chat + Audio Lines</div>
               <div className="text-2xl font-semibold text-white font-mono tabular-nums mt-0.5">
                 {messagesList.length}
               </div>
             </div>
             <div>
-              <div className="text-xs text-slate-400">Moderation Notices</div>
-              <div className="text-2xl font-semibold text-white font-mono tabular-nums mt-0.5">
-                {moderationList.length}
+              <div className="text-xs text-slate-400">Stored Mic Transcripts</div>
+              <div className="text-2xl font-semibold text-emerald-300 font-mono tabular-nums mt-0.5">
+                {transcriptsList.length}
               </div>
             </div>
             <div>
@@ -425,24 +580,23 @@ export function App() {
           </div>
         </section>
 
-        {/* SECTION 1: LIVE MONITOR & COMMAND DISPATCHER */}
+        {/* SECTION 1: LIVE MONITOR, CONTINUOUS AUDIO & COMMAND DISPATCHER */}
         {activeSection === 'monitor' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             {/* Left 8 Columns: Chat Stream + Event Simulator */}
             <div className="lg:col-span-8 space-y-6">
-              {/* Interactive Stream Console */}
               <div className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
                   <div>
-                    <h2 className="text-lg font-semibold text-white">01. Live UIA Event Stream &amp; Command Dispatcher</h2>
-                    <div className="flex items-center gap-2 text-xs text-slate-400 mt-1">
-                      <span>Poll Interval: {POLL_INTERVAL_SECONDS}s</span>
+                    <h2 className="text-lg font-semibold text-white">01. Pane(50033) Chat Stream &amp; Audio Index</h2>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-1 font-mono">
+                      <span>Rect: [l=1281,t=170,r=2299,b=1160]</span>
                       <span aria-hidden="true">·</span>
-                      <span>Max Message Length: {MAX_CHAT_MESSAGE_LENGTH} chars</span>
+                      <span>Active Tab: {engine.currentRoom}</span>
                       <span aria-hidden="true">·</span>
                       <span>Chat Mode: {engine.settings.chat_mode ? 'On' : 'Off'}</span>
                       <span aria-hidden="true">·</span>
-                      <span>Silent Mode: {engine.settings.silent_mode ? 'Muted' : 'Active'}</span>
+                      <span>Audio Transcription: {engine.settings.transcription_mode ? 'Recording' : 'Off'}</span>
                     </div>
                   </div>
 
@@ -466,7 +620,7 @@ export function App() {
                 {/* Quick Trigger Bar */}
                 <div className="space-y-2">
                   <div className="text-xs text-slate-400">
-                    Click any documented trigger below to dispatch a simulated UIA chat event immediately:
+                    Click any trigger below to test command recall (including stored mic audio transcripts):
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {SAMPLE_QUICK_COMMANDS.map((item) => (
@@ -493,18 +647,36 @@ export function App() {
                       <div
                         key={msg.id}
                         className={`px-4 py-3 text-sm flex flex-col sm:flex-row sm:items-baseline justify-between gap-2 ${
-                          msg.is_bot_reply ? 'bg-emerald-950/20' : 'hover:bg-slate-900/40'
+                          msg.is_bot_reply
+                            ? 'bg-emerald-950/20'
+                            : msg.source === 'audio_transcript'
+                            ? 'bg-sky-950/20'
+                            : 'hover:bg-slate-900/40'
                         }`}
                       >
                         <div className="space-y-1 min-w-0">
                           <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">
-                            <span className={msg.is_bot_reply ? 'text-emerald-300 font-semibold' : 'text-slate-200 font-semibold'}>
+                            <span
+                              className={
+                                msg.is_bot_reply
+                                  ? 'text-emerald-300 font-semibold'
+                                  : msg.source === 'audio_transcript'
+                                  ? 'text-sky-300 font-semibold'
+                                  : 'text-slate-200 font-semibold'
+                              }
+                            >
                               {msg.username}
                             </span>
                             <span aria-hidden="true">·</span>
                             <span>{msg.room || 'Players__Lounge'}</span>
                             <span aria-hidden="true">·</span>
                             <span>{msg.room_time}</span>
+                            {msg.source === 'audio_transcript' && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="text-sky-300">Continuous Audio Transcript</span>
+                              </>
+                            )}
                             {msg.is_bot_reply && (
                               <>
                                 <span aria-hidden="true">·</span>
@@ -533,9 +705,9 @@ export function App() {
                       onChange={(e) => setSelectedRoom(e.target.value as RoomName)}
                       className="w-full px-3 py-2 text-sm bg-slate-950 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-400"
                     >
-                      <option value="Players__Lounge">Players__Lounge</option>
+                      <option value="Players__Lounge">Players__Lounge (1550, 50)</option>
+                      <option value="Room List">Room List (1390, 50)</option>
                       <option value="Drama_Central">Drama_Central</option>
-                      <option value="Room List">Room List</option>
                     </select>
                   </div>
                   <div className="sm:col-span-3">
@@ -571,17 +743,179 @@ export function App() {
               </div>
             </div>
 
-            {/* Right 4 Columns: Bot Settings & Event Injectors */}
+            {/* Right 4 Columns: Continuous Audio Capture, Talk Button(50000), & Bot Switches */}
             <div className="lg:col-span-4 space-y-6">
-              {/* Bot Runtime Settings */}
+              {/* Continuous Audio Recording & Storage Panel */}
               <div className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-4">
-                <h2 className="text-lg font-semibold text-white">02. Bot Runtime Switches</h2>
-                <p className="text-xs text-slate-400">
-                  Direct state controls mirroring <code className="text-slate-200">BOT_SETTINGS</code> in{' '}
-                  <code className="text-slate-200">config.py</code>.
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-white">02. Continuous Audio Recording</h2>
+                  <span className="text-xs font-mono text-emerald-300">
+                    {engine.settings.continuous_audio_store ? 'STORING ALL' : 'PAUSED'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Originally, <code className="text-slate-100">camfrog_bot.py</code> had{' '}
+                  <code className="text-slate-100">transcription_mode</code> reserved with no speech capture. It is now
+                  upgraded: when enabled, spoken audio from the active speaker next to{' '}
+                  <code className="text-slate-100">Button(50000)</code> is continuously transcribed and indexed into{' '}
+                  <code className="text-slate-100">audio_transcripts</code> and <code className="text-slate-100">bot_messages</code>{' '}
+                  for <code className="text-slate-100">!info on</code> and <code className="text-slate-100">!who is</code>.
                 </p>
 
+                {/* Live Microphone Speech-to-Text Capture Button */}
+                <div className="space-y-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={toggleLiveAudioCapture}
+                    className={`w-full px-4 py-2.5 text-xs font-mono font-semibold rounded-lg border transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${
+                      isLiveListening
+                        ? 'bg-rose-500/20 border-rose-500/50 text-rose-200 hover:bg-rose-500/30'
+                        : 'bg-slate-950 border-slate-700 text-emerald-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    {isLiveListening ? (
+                      <>
+                        <MicOff className="w-4 h-4 text-rose-400" />
+                        Stop Live Mic Capture (Recording for {engine.activeSpeaker || micUserInput})
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-4 h-4 text-emerald-400" />
+                        Start Continuous Live Mic Capture (Web Speech)
+                      </>
+                    )}
+                  </button>
+
+                  {liveInterimText && (
+                    <div className="p-2.5 rounded bg-slate-950 border border-slate-800 text-xs font-mono text-sky-300">
+                      Live hearing ({engine.activeSpeaker || micUserInput}): &quot;{liveInterimText}&quot;
+                    </div>
+                  )}
+
+                  {speechError && (
+                    <div className="p-2.5 rounded bg-slate-950 border border-slate-800 text-xs text-amber-300">
+                      {speechError}
+                    </div>
+                  )}
+                </div>
+
+                {/* Simulated Continuous Audio / Mic Grab Injector */}
+                <form onSubmit={handleLogMicGrabWithTranscript} className="space-y-3 pt-2 border-t border-slate-800">
+                  <div className="text-xs font-medium text-slate-200">
+                    Log Active Speaker Audio &amp; Mic Grab to Database
+                  </div>
+                  <div className="grid grid-cols-12 gap-2">
+                    <div className="col-span-8">
+                      <label className="block text-[11px] text-slate-400 mb-1">Active Speaker (Right of Talk)</label>
+                      <input
+                        type="text"
+                        value={micUserInput}
+                        onChange={(e) => setMicUserInput(e.target.value)}
+                        placeholder="Username"
+                        className="w-full px-3 py-1.5 text-xs font-mono bg-slate-950 border border-slate-800 rounded-lg text-slate-100"
+                      />
+                    </div>
+                    <div className="col-span-4">
+                      <label className="block text-[11px] text-slate-400 mb-1">Duration (s)</label>
+                      <input
+                        type="number"
+                        value={micDurationInput}
+                        onChange={(e) => setMicDurationInput(e.target.value)}
+                        placeholder="Sec"
+                        className="w-full px-3 py-1.5 text-xs font-mono bg-slate-950 border border-slate-800 rounded-lg text-slate-100 tabular-nums"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">
+                      Captured Audio Transcript (Stored for !who is &amp; !info on)
+                    </label>
+                    <input
+                      type="text"
+                      value={micTranscriptInput}
+                      onChange={(e) => setMicTranscriptInput(e.target.value)}
+                      placeholder="Spoken words on microphone..."
+                      className="w-full px-3 py-1.5 text-xs font-mono bg-slate-950 border border-slate-800 rounded-lg text-slate-100"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full px-3 py-2 text-xs font-medium bg-emerald-400 text-slate-950 rounded-lg hover:bg-emerald-300 transition-colors whitespace-nowrap"
+                  >
+                    Store Mic Grab + Audio Transcript
+                  </button>
+                </form>
+
+                {/* Hold-to-Talk Button(50000) [l=1291,t=1169,r=1361,b=1195] */}
+                <div className="pt-3 border-t border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300 font-medium">Talk Button(50000) Hold-Press</span>
+                    <span className="font-mono text-slate-400">[1291, 1169, 1361, 1195]</span>
+                  </div>
+                  <button
+                    type="button"
+                    onMouseDown={() => {
+                      setIsHoldingTalk(true);
+                      holdStartRef.current = Date.now();
+                    }}
+                    onMouseUp={() => {
+                      if (isHoldingTalk) {
+                        setIsHoldingTalk(false);
+                        const heldSec = Math.max(1, Math.round((Date.now() - holdStartRef.current) / 1000));
+                        engine.store.recordMicGrab(
+                          'kaekae_bot',
+                          heldSec,
+                          undefined,
+                          `Broadcasted ${heldSec}s audio via Button(50000) Hold-to-Talk`,
+                          selectedRoom,
+                          true
+                        );
+                        bump();
+                      }
+                    }}
+                    onMouseLeave={() => {
+                      if (isHoldingTalk) setIsHoldingTalk(false);
+                    }}
+                    className={`w-full py-2.5 px-4 text-xs font-mono rounded-lg border transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${
+                      isHoldingTalk
+                        ? 'bg-emerald-400 text-slate-950 border-emerald-300 font-semibold'
+                        : 'bg-slate-950 hover:bg-slate-800 text-slate-200 border-slate-800'
+                    }`}
+                  >
+                    <Radio className="w-4 h-4" />
+                    {isHoldingTalk
+                      ? 'BROADCASTING ON TALK BUTTON [1291,1169,1361,1195]...'
+                      : 'Hold Press to Broadcast Audio (Talk Button)'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Bot Runtime Settings */}
+              <div className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-4">
+                <h2 className="text-lg font-semibold text-white">03. Bot Runtime Switches</h2>
                 <div className="divide-y divide-slate-800 text-sm">
+                  <div className="py-3 flex items-center justify-between">
+                    <div>
+                      <div className="font-medium text-slate-200">Continuous Audio Store (!transcribe)</div>
+                      <div className="text-xs text-slate-400">Index mic speech into user profiles &amp; word stats</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        engine.settings.continuous_audio_store = !engine.settings.continuous_audio_store;
+                        engine.settings.transcription_mode = engine.settings.continuous_audio_store;
+                        bump();
+                      }}
+                      className={`px-3 py-1.5 text-xs font-mono rounded-md border whitespace-nowrap ${
+                        engine.settings.continuous_audio_store
+                          ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-200'
+                          : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {engine.settings.continuous_audio_store ? 'RECORDING' : 'OFF'}
+                    </button>
+                  </div>
+
                   <div className="py-3 flex items-center justify-between">
                     <div>
                       <div className="font-medium text-slate-200">Chat Mode (!chat / !chatoff)</div>
@@ -606,7 +940,7 @@ export function App() {
                   <div className="py-3 flex items-center justify-between">
                     <div>
                       <div className="font-medium text-slate-200">Silent Switch (!shutup)</div>
-                      <div className="text-xs text-slate-400">Keep recording UIA events without replying</div>
+                      <div className="text-xs text-slate-400">Keep recording UIA &amp; audio without replying</div>
                     </div>
                     <button
                       type="button"
@@ -623,42 +957,12 @@ export function App() {
                       {engine.settings.silent_mode ? 'SILENT' : 'SPEAKING'}
                     </button>
                   </div>
-
-                  <div className="py-3 flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-slate-200">Presence Simulation</div>
-                      <div className="text-xs text-slate-400">Emit UIA Join: / Quit: for {senderInput || 'user'}</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleSimulatePresence('join')}
-                        className="px-2.5 py-1.5 text-xs font-mono bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-md text-emerald-300 flex items-center gap-1 whitespace-nowrap"
-                      >
-                        <UserPlus className="w-3.5 h-3.5" />
-                        Join
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSimulatePresence('quit')}
-                        className="px-2.5 py-1.5 text-xs font-mono bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-md text-slate-300 flex items-center gap-1 whitespace-nowrap"
-                      >
-                        <UserMinus className="w-3.5 h-3.5" />
-                        Quit
-                      </button>
-                    </div>
-                  </div>
                 </div>
               </div>
 
-              {/* Strict Moderation Notice Tester */}
+              {/* Strict Moderation Notice Parser */}
               <div className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-4">
-                <h2 className="text-lg font-semibold text-white">03. Moderation Notice Parser</h2>
-                <p className="text-xs text-slate-400">
-                  Tests <code className="text-slate-200">detect_moderation()</code> regex rules. Conversational prose is
-                  rejected; strict room notices are logged to <code className="text-slate-200">moderation_events</code>.
-                </p>
-
+                <h2 className="text-lg font-semibold text-white">04. Moderation Notice Parser</h2>
                 <form onSubmit={handleInjectModeration} className="space-y-3">
                   <input
                     type="text"
@@ -674,7 +978,7 @@ export function App() {
                       </span>
                     ) : (
                       <span className="text-amber-300">
-                        REJECTED: Treated as regular chat prose (not a moderation notice)
+                        REJECTED: Treated as regular chat prose
                       </span>
                     )}
                   </div>
@@ -686,47 +990,18 @@ export function App() {
                   </button>
                 </form>
               </div>
-
-              {/* Mic Grab Simulator */}
-              <div className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-4">
-                <h2 className="text-lg font-semibold text-white">04. Active Speaker &amp; Mic Grabs</h2>
-                <p className="text-xs text-slate-400">
-                  Simulates <code className="text-slate-200">CButtonTS</code> active speaker detection to the right of
-                  the Talk button and records <code className="text-slate-200">mic_grabs</code> duration.
-                </p>
-                <form onSubmit={handleLogMicGrab} className="grid grid-cols-12 gap-2">
-                  <input
-                    type="text"
-                    value={micUserInput}
-                    onChange={(e) => setMicUserInput(e.target.value)}
-                    placeholder="Username"
-                    className="col-span-6 px-3 py-2 text-xs font-mono bg-slate-950 border border-slate-800 rounded-lg text-slate-100"
-                  />
-                  <input
-                    type="number"
-                    value={micDurationInput}
-                    onChange={(e) => setMicDurationInput(e.target.value)}
-                    placeholder="Sec"
-                    className="col-span-3 px-3 py-2 text-xs font-mono bg-slate-950 border border-slate-800 rounded-lg text-slate-100"
-                  />
-                  <button
-                    type="submit"
-                    className="col-span-3 px-3 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors whitespace-nowrap"
-                  >
-                    Log Grab
-                  </button>
-                </form>
-              </div>
             </div>
           </div>
         )}
 
-        {/* SECTION 2: SQLITE DATABASE & SUPPRESSION VAULT */}
+        {/* SECTION 2: SQLITE DATABASE, AUDIO TRANSCRIPTS & SUPPRESSION VAULT */}
         {activeSection === 'database' && (
           <div className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
               <div>
-                <h2 className="text-lg font-semibold text-white">SQLite Persistence &amp; Non-Queryable Suppression Vault</h2>
+                <h2 className="text-lg font-semibold text-white">
+                  SQLite Persistence, Stored Audio Transcripts &amp; Suppression Vault
+                </h2>
                 <p className="text-xs text-slate-400 mt-1">
                   Inspecting <code className="text-slate-200">data/camfrog_bot.db</code> tables and{' '}
                   <code className="text-slate-200">data/suppressed/*.json</code> vault files.
@@ -738,6 +1013,7 @@ export function App() {
                   [
                     { id: 'users', label: `bot_users (${usersList.length})` },
                     { id: 'messages', label: `bot_messages (${messagesList.length})` },
+                    { id: 'transcripts', label: `audio_transcripts (${transcriptsList.length})` },
                     { id: 'moderation', label: `moderation_events (${moderationList.length})` },
                     { id: 'grabs', label: `mic_grabs (${micGrabsList.length})` },
                     { id: 'vault', label: `suppressed_users (${suppressedList.length})` },
@@ -817,9 +1093,9 @@ export function App() {
                       <tr className="border-b border-slate-800 text-xs text-slate-400 font-mono">
                         <th className="py-2.5 px-3">id</th>
                         <th className="py-2.5 px-3">username</th>
+                        <th className="py-2.5 px-3">source</th>
                         <th className="py-2.5 px-3">body</th>
                         <th className="py-2.5 px-3">room_time</th>
-                        <th className="py-2.5 px-3">event_key (sha256)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono text-xs">
@@ -827,14 +1103,45 @@ export function App() {
                         <tr key={m.id} className="hover:bg-slate-900/60">
                           <td className="py-2.5 px-3 text-slate-400 tabular-nums">{m.id}</td>
                           <td className="py-2.5 px-3 font-semibold text-white">{m.username}</td>
+                          <td className="py-2.5 px-3 text-slate-400">{m.source || 'chat'}</td>
                           <td className="py-2.5 px-3 text-slate-200">{m.body}</td>
                           <td className="py-2.5 px-3 text-slate-400 tabular-nums">{m.room_time}</td>
-                          <td className="py-2.5 px-3 text-slate-500 tabular-nums">{m.event_key}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+
+            {dbTab === 'transcripts' && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-xs text-slate-400 font-mono">
+                      <th className="py-2.5 px-3">id</th>
+                      <th className="py-2.5 px-3">speaker</th>
+                      <th className="py-2.5 px-3">transcript</th>
+                      <th className="py-2.5 px-3 text-right">duration_seconds</th>
+                      <th className="py-2.5 px-3">room</th>
+                      <th className="py-2.5 px-3">observed_at</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-mono text-xs">
+                    {transcriptsList.map((tr) => (
+                      <tr key={tr.id} className="hover:bg-slate-900/60">
+                        <td className="py-2.5 px-3 text-slate-400 tabular-nums">{tr.id}</td>
+                        <td className="py-2.5 px-3 text-sky-300 font-semibold">{tr.speaker}</td>
+                        <td className="py-2.5 px-3 text-slate-100">{tr.transcript}</td>
+                        <td className="py-2.5 px-3 text-right text-emerald-300 tabular-nums">
+                          {tr.duration_seconds}s
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400">{tr.room}</td>
+                        <td className="py-2.5 px-3 text-slate-400 tabular-nums">{tr.observed_at}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
 
@@ -875,6 +1182,7 @@ export function App() {
                       <th className="py-2.5 px-3">id</th>
                       <th className="py-2.5 px-3">username</th>
                       <th className="py-2.5 px-3 text-right">duration_seconds</th>
+                      <th className="py-2.5 px-3">stored_transcript</th>
                       <th className="py-2.5 px-3">started_at</th>
                     </tr>
                   </thead>
@@ -884,6 +1192,7 @@ export function App() {
                         <td className="py-2.5 px-3 text-slate-400 tabular-nums">{g.id}</td>
                         <td className="py-2.5 px-3 text-white font-semibold">{g.username}</td>
                         <td className="py-2.5 px-3 text-right text-emerald-300 tabular-nums">{g.duration_seconds}s</td>
+                        <td className="py-2.5 px-3 text-slate-300">{g.transcript || '—'}</td>
                         <td className="py-2.5 px-3 text-slate-400 tabular-nums">{g.started_at}</td>
                       </tr>
                     ))}
@@ -897,8 +1206,7 @@ export function App() {
                 {suppressedList.length === 0 ? (
                   <div className="p-8 text-center text-sm text-slate-400 border border-slate-800 rounded-lg bg-slate-950">
                     No users are currently suppressed. Run <code className="text-slate-200">!suppress</code> from any
-                    user or click <code className="text-slate-200">!suppress</code> in the{' '}
-                    <code className="text-slate-200">bot_users</code> tab to move their history to{' '}
+                    user to move their chat, mic grabs, and audio transcripts into{' '}
                     <code className="text-slate-200">data/suppressed/</code>.
                   </div>
                 ) : (
@@ -908,8 +1216,9 @@ export function App() {
                         <div className="space-y-1 font-mono text-xs">
                           <div className="text-amber-300 font-semibold">{vault.username} (Suppressed)</div>
                           <div className="text-slate-400">
-                            Vault Path: {vault.vault_file} · Suppressed At: {vault.suppressed_at} · Archived Messages:{' '}
-                            {vault.messages.length} · Archived Grabs: {vault.mic_grabs.length}
+                            Vault Path: {vault.vault_file} · Suppressed At: {vault.suppressed_at} · Messages:{' '}
+                            {vault.messages.length} · Grabs: {vault.mic_grabs.length} · Audio Transcripts:{' '}
+                            {vault.audio_transcripts?.length || 0}
                           </div>
                         </div>
                         <button
@@ -931,15 +1240,18 @@ export function App() {
           </div>
         )}
 
-        {/* SECTION 3: UIA ACCESSIBILITY TREE & USERNAME FILTER */}
+        {/* SECTION 3: CALIBRATED UIA CONTROL RECTANGLES & IGNORED LISTITEMS */}
         {activeSection === 'uia' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-8 border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-4">
               <div className="border-b border-slate-800 pb-4">
-                <h2 className="text-lg font-semibold text-white">Live UIA / CEF Control Tree Nodes</h2>
+                <h2 className="text-lg font-semibold text-white">
+                  Calibrated UIA Control Tree &amp; Ignored ListItem(50007) Filter
+                </h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  Window regex: <code className="text-slate-200 font-mono">{CAMFROG_WINDOW_TITLE_RE}</code> · Cache TTL:{' '}
-                  <code className="text-slate-200 font-mono">{UIA_CACHE_SECONDS}s</code>
+                  Uses fixed control coordinates and filters out the 3 non-user{' '}
+                  <code className="text-slate-200 font-mono">ListItem(50007)</code> rectangles in{' '}
+                  <code className="text-slate-200 font-mono">List(50008) [l=2303,t=141,r=2559,b=1160]</code>.
                 </p>
               </div>
 
@@ -947,29 +1259,30 @@ export function App() {
                 <table className="w-full text-left border-collapse text-xs font-mono">
                   <thead>
                     <tr className="border-b border-slate-800 text-slate-400">
-                      <th className="py-2.5 px-3">control_type</th>
-                      <th className="py-2.5 px-3">class_name</th>
-                      <th className="py-2.5 px-3">name</th>
-                      <th className="py-2.5 px-3 text-right">bounding_rect (L, T, R, B)</th>
-                      <th className="py-2.5 px-3 text-right">clean_username()</th>
+                      <th className="py-2.5 px-3">ControlType</th>
+                      <th className="py-2.5 px-3">Name / Element</th>
+                      <th className="py-2.5 px-3 text-right">BoundingRectangle [l, t, r, b]</th>
+                      <th className="py-2.5 px-3 text-right">Roster Extraction Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
                     {uiaNodes.map((n) => {
-                      const cleaned = cleanUsername(n.name);
+                      const rectTuple: [number, number, number, number] = [n.left, n.top, n.right, n.bottom];
+                      const cleaned = cleanUsername(n.name, rectTuple);
                       return (
                         <tr key={n.id} className="hover:bg-slate-900/60">
                           <td className="py-2.5 px-3 text-emerald-300">{n.control_type}</td>
-                          <td className="py-2.5 px-3 text-slate-300">{n.class_name}</td>
                           <td className="py-2.5 px-3 text-white">{n.name}</td>
-                          <td className="py-2.5 px-3 text-right text-slate-400 tabular-nums">
-                            ({n.left}, {n.top}, {n.right}, {n.bottom})
+                          <td className="py-2.5 px-3 text-right text-slate-300 tabular-nums">
+                            [l={n.left}, t={n.top}, r={n.right}, b={n.bottom}]
                           </td>
                           <td className="py-2.5 px-3 text-right">
-                            {cleaned ? (
-                              <span className="text-emerald-300">{cleaned}</span>
+                            {n.ignored_reason ? (
+                              <span className="text-amber-300">{n.ignored_reason}</span>
+                            ) : cleaned && n.control_type === 'ListItem(50007)' ? (
+                              <span className="text-emerald-300">Valid User: {cleaned} (r=2559)</span>
                             ) : (
-                              <span className="text-slate-500">Ignored (UI Chrome)</span>
+                              <span className="text-slate-500">Structural Control</span>
                             )}
                           </td>
                         </tr>
@@ -982,19 +1295,25 @@ export function App() {
 
             <div className="lg:col-span-4 space-y-6">
               <div className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-4">
-                <h2 className="text-lg font-semibold text-white">Layout Locations (--locations)</h2>
+                <h2 className="text-lg font-semibold text-white">Calibrated BoundingRectangles</h2>
                 <p className="text-xs text-slate-400">
-                  Output of <code className="text-slate-200">camfrog_boy.py --dry-run --locations</code> derived from
-                  UIA rectangles:
+                  Exact coordinates independent of room topic changes in the window title:
                 </p>
                 <pre className="p-4 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-200 overflow-x-auto">
                   {JSON.stringify(
                     {
-                      window: [100, 20, 1820, 1020],
-                      chat_feed: [100, 20, 1441, 1020],
-                      user_list: [1441, 20, 1820, 1020],
-                      chat_input: [120, 930, 1420, 985],
-                      talk: [1460, 860, 1540, 892],
+                      tabs: {
+                        Room_List: '(1390, 50)',
+                        Players__Lounge: '(1550, 50)',
+                      },
+                      chat_window_Pane_50033: '[l=1281, t=170, r=2299, b=1160]',
+                      talk_button_Button_50000: '[l=1291, t=1169, r=1361, b=1195]',
+                      user_list_List_50008: '[l=2303, t=141, r=2559, b=1160]',
+                      ignored_ListItems_50007: [
+                        '[l=2303, t=141, r=2559, b=163]',
+                        '[l=2303, t=207, r=2559, b=229]',
+                        '[l=2303, t=867, r=2559, b=889]',
+                      ],
                     },
                     null,
                     2
@@ -1005,9 +1324,7 @@ export function App() {
               <div className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-4">
                 <h2 className="text-lg font-semibold text-white">MODERATION_ALLOWED_SENDERS</h2>
                 <p className="text-xs text-slate-400">
-                  Operators authorized to emit slash commands (<code className="text-slate-200">/unban</code>,{' '}
-                  <code className="text-slate-200">/unpunish</code>, <code className="text-slate-200">/unblockmic</code>
-                  , <code className="text-slate-200">/topic</code>, <code className="text-slate-200">/watchlist</code>):
+                  Trusted operators authorized to emit slash commands:
                 </p>
                 <div className="space-y-2 font-mono text-xs">
                   {Array.from(engine.allowedModerationSenders).map((op) => (
@@ -1060,15 +1377,18 @@ export function App() {
           </div>
         )}
 
-        {/* SECTION 4: MULTI-ROOM TAB COORDINATES & ROOM DATA PROCESSOR */}
+        {/* SECTION 4: FIXED ROOM TAB COORDINATES */}
         {activeSection === 'rooms' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-7 border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-5">
               <div className="border-b border-slate-800 pb-4">
-                <h2 className="text-lg font-semibold text-white">Room Tab Coordinate Detection (ROOM_TAB_POSITIONS)</h2>
+                <h2 className="text-lg font-semibold text-white">
+                  Fixed Tab Coordinates (Independent of Dynamic Window Title/Topic)
+                </h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  Configured in <code className="text-slate-200">config.py</code> and{' '}
-                  <code className="text-slate-200">ui_automation.py</code> for tab switching and context routing.
+                  Since the Camfrog window title changes whenever the room topic changes, tab identification uses the
+                  fixed screen coordinates <code className="text-slate-200">(1390, 50)</code> and{' '}
+                  <code className="text-slate-200">(1550, 50)</code>.
                 </p>
               </div>
 
@@ -1076,6 +1396,7 @@ export function App() {
                 {(Object.entries(ROOM_TAB_POSITIONS) as Array<[RoomName, [number, number, number, number]]>).map(
                   ([roomName, [left, top, right, bottom]]) => {
                     const isCurrent = engine.currentRoom === roomName;
+                    const [clickX, clickY] = ROOM_TAB_CLICK_POINTS[roomName];
                     return (
                       <div key={roomName} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div className="space-y-1">
@@ -1084,12 +1405,12 @@ export function App() {
                             <span aria-hidden="true" className="text-slate-500">
                               ·
                             </span>
-                            <span className="text-xs font-mono text-slate-400 tabular-nums">
-                              Bounds: [{left}, {top}, {right}, {bottom}]
+                            <span className="text-xs font-mono text-emerald-300 tabular-nums">
+                              Calibrated Point: ({clickX}, {clickY})
                             </span>
                           </div>
-                          <div className="text-xs text-slate-400 font-mono">
-                            Center click target: ({Math.floor((left + right) / 2)}, {Math.floor((top + bottom) / 2)})
+                          <div className="text-xs text-slate-400 font-mono tabular-nums">
+                            Tab BoundingRectangle: [l={left}, t={top}, r={right}, b={bottom}]
                           </div>
                         </div>
 
@@ -1102,7 +1423,7 @@ export function App() {
                               : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700'
                           }`}
                         >
-                          {isCurrent ? 'Active Room Tab' : 'Switch via UIA Tab Click'}
+                          {isCurrent ? `Active @ (${clickX}, ${clickY})` : `Click (${clickX}, ${clickY})`}
                         </button>
                       </div>
                     );
@@ -1115,7 +1436,7 @@ export function App() {
                 <h3 className="text-sm font-semibold text-white">Test find_room_by_position(x, y)</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">X Coordinate</label>
+                    <label className="block text-xs text-slate-400 mb-1">X Coordinate (e.g. 1390 or 1550)</label>
                     <input
                       type="number"
                       value={probeX}
@@ -1124,7 +1445,7 @@ export function App() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Y Coordinate</label>
+                    <label className="block text-xs text-slate-400 mb-1">Y Coordinate (e.g. 50)</label>
                     <input
                       type="number"
                       value={probeY}
@@ -1147,8 +1468,7 @@ export function App() {
             <div className="lg:col-span-5 border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-4">
               <h2 className="text-lg font-semibold text-white">Documented Trigger Reference</h2>
               <p className="text-xs text-slate-400">
-                All triggers defined in <code className="text-slate-200">TRIGGER_NAMES</code> in{' '}
-                <code className="text-slate-200">config.py</code>:
+                All triggers defined in <code className="text-slate-200">TRIGGER_NAMES</code>:
               </p>
               <div className="grid grid-cols-2 gap-2 font-mono text-xs">
                 {TRIGGER_NAMES.map((trig) => (
@@ -1168,9 +1488,9 @@ export function App() {
               <div>
                 <h2 className="text-lg font-semibold text-white">Offline Unit Test Suite (test_bot.py)</h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  Executes the 4 unit tests from <code className="text-slate-200">test_bot.py</code> against the
-                  in-memory <code className="text-slate-200">CamfrogBotEngine</code> and{' '}
-                  <code className="text-slate-200">CamfrogStore</code>.
+                  Executes the unit tests against <code className="text-slate-200">CamfrogBotEngine</code>,{' '}
+                  <code className="text-slate-200">CamfrogStore</code>, and the ignored{' '}
+                  <code className="text-slate-200">ListItem(50007)</code> coordinate filters.
                 </p>
               </div>
               <button
@@ -1207,6 +1527,63 @@ export function App() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* SECTION 6: FIXED LOCAL PYTHON FILES FOR C:\Users\newbe\AIBot */}
+        {activeSection === 'python_fix' && (
+          <div className="space-y-6">
+            <div className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-3">
+              <h2 className="text-lg font-semibold text-white">
+                Fixed Python Files for <code className="font-mono text-emerald-300">C:\Users\newbe\AIBot</code>
+              </h2>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Fixes <code className="text-amber-300">Camfrog UIA connection failed: You must specify some of process, handle, path or window search criteria</code> by enumerating desktop windows via{' '}
+                <code className="text-slate-100">Desktop(backend=&quot;uia&quot;).windows()</code> and attaching by window{' '}
+                <code className="text-slate-100">handle</code>, plus adds VB-Cable TTS broadcast (<code className="text-slate-100">CABLE Input</code> + holding Talk Button <code className="text-slate-100">[l=1291,t=1169,r=1361,b=1195]</code>) and filters the 3 ignored <code className="text-slate-100">ListItem(50007)</code> rectangles.
+              </p>
+            </div>
+
+            {[
+              { name: 'ui_automation.py', code: FIXED_UI_AUTOMATION_PY },
+              { name: 'config.py', code: FIXED_CONFIG_PY },
+            ].map((file) => (
+              <div key={file.name} className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <span className="font-mono text-sm font-semibold text-white">{file.name}</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyPython(file.name, file.code)}
+                      className="px-3 py-1.5 text-xs font-mono bg-slate-950 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-md flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      {copiedFile === file.name ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          Copied!
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          Copy {file.name}
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadPython(file.name, file.code)}
+                      className="px-3 py-1.5 text-xs font-mono bg-emerald-400 text-slate-950 font-semibold rounded-md hover:bg-emerald-300 flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Download {file.name}
+                    </button>
+                  </div>
+                </div>
+                <pre className="p-4 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-200 max-h-[420px] overflow-auto">
+                  {file.code}
+                </pre>
+              </div>
+            ))}
           </div>
         )}
       </main>

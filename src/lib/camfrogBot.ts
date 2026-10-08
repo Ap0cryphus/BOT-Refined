@@ -1,6 +1,7 @@
 /**
  * Faithful TypeScript port of config.py, ui_automation.py, camfrog_bot.py,
- * room_data_processor.py, and test_bot.py.
+ * room_data_processor.py, and test_bot.py — updated with exact calibrated
+ * UIA coordinates and continuous audio transcription storage.
  */
 
 export const CAPTURE_BACKEND = 'uia';
@@ -17,16 +18,75 @@ export const CHAT_HISTORY_LIMIT = 10;
 
 export type RoomName = 'Room List' | 'Players__Lounge' | 'Drama_Central';
 
+/**
+ * Fixed tab click coordinates & bounding boxes (independent of dynamic window title/topic):
+ * (1390, 50) -> Room List
+ * (1550, 50) -> Players__Lounge
+ */
+export const ROOM_TAB_CLICK_POINTS: Record<RoomName, [number, number]> = {
+  'Room List': [1390, 50],
+  'Players__Lounge': [1550, 50],
+  'Drama_Central': [1710, 50],
+};
+
 export const ROOM_TAB_POSITIONS: Record<RoomName, [number, number, number, number]> = {
   'Room List': [1313, 37, 1473, 71],
   'Players__Lounge': [1473, 37, 1633, 71],
   'Drama_Central': [1633, 37, 1793, 71],
 };
 
+/**
+ * Exact calibrated UIA Control BoundingRectangles [left, top, right, bottom]:
+ * - Chat Window: Pane(50033) [l=1281,t=170,r=2299,b=1160]
+ * - Talk Button: Button(50000) [l=1291,t=1169,r=1361,b=1195]
+ * - User List: List(50008) [l=2303,t=141,r=2559,b=1160]
+ */
+export const CALIBRATED_UIA_RECTS = {
+  chat_window: {
+    control_type: 'Pane(50033)',
+    rect: [1281, 170, 2299, 1160] as [number, number, number, number],
+  },
+  talk_button: {
+    control_type: 'Button(50000)',
+    rect: [1291, 1169, 1361, 1195] as [number, number, number, number],
+  },
+  user_list: {
+    control_type: 'List(50008)',
+    rect: [2303, 141, 2559, 1160] as [number, number, number, number],
+  },
+};
+
+/**
+ * Specific ListItem(50007) bounding rectangles in the User List (r=2559)
+ * that represent section headers/separators and MUST be ignored when extracting usernames:
+ */
+export const IGNORED_USER_LIST_RECTS: Array<[number, number, number, number]> = [
+  [2303, 141, 2559, 163],
+  [2303, 207, 2559, 229],
+  [2303, 867, 2559, 889],
+];
+
+export function isIgnoredUserListItemRect(rect: [number, number, number, number]): boolean {
+  const [l, t, r, b] = rect;
+  return IGNORED_USER_LIST_RECTS.some(
+    ([il, it, ir, ib]) => l === il && t === it && r === ir && b === ib
+  );
+}
+
+export const VB_CABLE_CONFIG = {
+  playback_device: 'CABLE Input (VB-Audio Virtual Cable)',
+  recording_device: 'CABLE Output (VB-Audio Virtual Cable)',
+  talk_button_center: [1326, 1182] as [number, number],
+  talk_button_rect: [1291, 1169, 1361, 1195] as [number, number, number, number],
+};
+
 export interface BotSettings {
   chat_mode: boolean;
   silent_mode: boolean;
   transcription_mode: boolean;
+  continuous_audio_store: boolean;
+  vb_cable_tts_enabled: boolean;
+  vb_cable_device_name: string;
   running: boolean;
   dry_run: boolean;
   tone: 'neutral' | 'happy' | 'sad' | 'mad';
@@ -35,7 +95,10 @@ export interface BotSettings {
 export const INITIAL_BOT_SETTINGS: BotSettings = {
   chat_mode: false,
   silent_mode: false,
-  transcription_mode: false,
+  transcription_mode: true,
+  continuous_audio_store: true,
+  vb_cable_tts_enabled: true,
+  vb_cable_device_name: 'CABLE Input (VB-Audio Virtual Cable)',
   running: true,
   dry_run: true,
   tone: 'neutral',
@@ -101,10 +164,12 @@ const HISTORY_RE =
   /^who\s+(?<action>kicked|blocked|unblocked|banned|unbanned|punished|unpunished)\s+(?<target>[A-Za-z0-9_$-]{2,32})\s*\??$/i;
 
 /**
- * Return a valid Camfrog username, or an empty string for UI chrome.
- * Mirrors ui_automation.py `clean_username`
+ * Return a valid Camfrog username, or an empty string for UI chrome or ignored ListItem rects.
  */
-export function cleanUsername(value: string): string {
+export function cleanUsername(value: string, rect?: [number, number, number, number]): string {
+  if (rect && isIgnoredUserListItemRect(rect)) {
+    return '';
+  }
   const raw = String(value || '').trim();
   if (CLOCK_RE.test(raw) || COMPACT_CLOCK_RE.test(raw)) {
     return '';
@@ -123,10 +188,6 @@ export interface ModerationNotice {
   action: string;
 }
 
-/**
- * Parse a complete Camfrog moderation notice; reject conversational prose.
- * Mirrors camfrog_bot.py `detect_moderation`
- */
 export function detectModeration(text: string): ModerationNotice | null {
   const input = String(text || '');
   for (const pattern of [MOD_BY_RE, MOD_RE]) {
@@ -189,6 +250,7 @@ export interface BotMessageRow {
   room?: RoomName;
   is_bot_reply?: boolean;
   dry_run?: boolean;
+  source?: 'chat' | 'audio_transcript';
 }
 
 export interface PresenceEventRow {
@@ -215,6 +277,16 @@ export interface MicGrabRow {
   username: string;
   started_at: string;
   duration_seconds: number;
+  transcript?: string;
+}
+
+export interface AudioTranscriptRow {
+  id: number;
+  speaker: string;
+  transcript: string;
+  duration_seconds: number;
+  observed_at: string;
+  room: RoomName;
 }
 
 export interface SuppressedVaultPayload {
@@ -224,27 +296,30 @@ export interface SuppressedVaultPayload {
   user: BotUserRow | null;
   messages: BotMessageRow[];
   mic_grabs: MicGrabRow[];
+  audio_transcripts: AudioTranscriptRow[];
 }
 
 export interface UserProfileResult extends BotUserRow {
   messages: string[];
+  transcripts: string[];
   top_word: string;
   top_count: number;
 }
 
 export interface UIANode {
   id: string;
-  control_type: 'Window' | 'Button' | 'Hyperlink' | 'Text' | 'Edit' | 'ListItem' | 'Custom';
+  control_type: string;
   name: string;
   class_name: string;
   left: number;
   top: number;
   right: number;
   bottom: number;
+  ignored_reason?: string;
 }
 
 /**
- * In-memory port of CamfrogStore (SQLite tables + non-queryable suppression vault)
+ * In-memory port of CamfrogStore (SQLite tables + non-queryable suppression vault + audio transcripts)
  */
 export class CamfrogStore {
   users: Map<string, BotUserRow> = new Map();
@@ -252,11 +327,13 @@ export class CamfrogStore {
   presenceEvents: PresenceEventRow[] = [];
   moderationEvents: ModerationEventRow[] = [];
   micGrabs: MicGrabRow[] = [];
+  audioTranscripts: AudioTranscriptRow[] = [];
   suppressedVault: Map<string, SuppressedVaultPayload> = new Map();
   private nextMsgId = 1;
   private nextPresenceId = 1;
   private nextModId = 1;
   private nextGrabId = 1;
+  private nextTranscriptId = 1;
 
   constructor(seedInitialData = true) {
     if (seedInitialData) {
@@ -285,7 +362,6 @@ export class CamfrogStore {
       this.recordMessage(msg.username, msg.body, msg.room_time, msg.observed_at, msg.room);
     }
 
-    // Seed sample moderation notices and mic grabs so queries work immediately
     this.recordModeration(
       { actor: 'Stonerwayne1000', target: 'WutUpWattz', action: 'unpunished' },
       'WutUpWattz was unpunished by Stonerwayne1000.',
@@ -301,12 +377,7 @@ export class CamfrogStore {
       'skracH_iLL_Man_ blocked CYBERBABY2 microphone.',
       '2026-10-08T01:37:45+00:00'
     );
-
-    const recentIso = new Date(Date.now() - 1200 * 1000).toISOString().replace(/\.\d{3}Z$/, '+00:00');
-    this.recordMicGrab('Stonerwayne1000', 42, recentIso);
-    this.recordMicGrab('Stonerwayne1000', 18, recentIso);
-    this.recordMicGrab('nico1ee', 65, recentIso);
-    this.recordMicGrab('Rosie', 29, recentIso);
+    // Note: No fake mic_grabs or audio_transcripts are seeded; only real captured active-speaker events are stored.
   }
 
   isSuppressed(username: string): boolean {
@@ -322,6 +393,7 @@ export class CamfrogStore {
     const user = this.users.get(key) || null;
     const userMessages = this.messages.filter((m) => m.username.toLowerCase() === key && !m.is_bot_reply);
     const userGrabs = this.micGrabs.filter((g) => g.username.toLowerCase() === key);
+    const userTranscripts = this.audioTranscripts.filter((t) => t.speaker.toLowerCase() === key);
     const suppressedAt = nowIso();
 
     const payload: SuppressedVaultPayload = {
@@ -331,11 +403,13 @@ export class CamfrogStore {
       user: user ? { ...user } : null,
       messages: userMessages.map((m) => ({ ...m })),
       mic_grabs: userGrabs.map((g) => ({ ...g })),
+      audio_transcripts: userTranscripts.map((t) => ({ ...t })),
     };
 
     this.suppressedVault.set(key, payload);
     this.messages = this.messages.filter((m) => m.username.toLowerCase() !== key || m.is_bot_reply);
     this.micGrabs = this.micGrabs.filter((g) => g.username.toLowerCase() !== key);
+    this.audioTranscripts = this.audioTranscripts.filter((t) => t.speaker.toLowerCase() !== key);
     this.users.delete(key);
     return true;
   }
@@ -359,6 +433,9 @@ export class CamfrogStore {
     for (const grab of payload.mic_grabs) {
       this.micGrabs.push({ ...grab, id: this.nextGrabId++ });
     }
+    for (const tr of payload.audio_transcripts || []) {
+      this.audioTranscripts.push({ ...tr, id: this.nextTranscriptId++ });
+    }
     this.suppressedVault.delete(key);
     return true;
   }
@@ -370,12 +447,13 @@ export class CamfrogStore {
     observedAt = nowIso(),
     room: RoomName = 'Players__Lounge',
     isBotReply = false,
-    dryRun = false
+    dryRun = false,
+    source: 'chat' | 'audio_transcript' = 'chat'
   ): BotMessageRow | null {
     if (!isBotReply && this.isSuppressed(username)) {
       return null;
     }
-    const key = messageKey(username, body, `${roomTime}:${isBotReply ? this.nextMsgId : ''}`);
+    const key = messageKey(username, body, `${roomTime}:${isBotReply ? this.nextMsgId : ''}:${source}`);
     if (!isBotReply && this.messages.some((m) => m.event_key === key)) {
       return null;
     }
@@ -389,6 +467,7 @@ export class CamfrogStore {
       room,
       is_bot_reply: isBotReply,
       dry_run: dryRun,
+      source,
     };
     this.messages.push(row);
 
@@ -460,14 +539,50 @@ export class CamfrogStore {
     });
   }
 
-  recordMicGrab(username: string, durationSeconds: number, startedAt = nowIso()): void {
+  recordMicGrab(
+    username: string,
+    durationSeconds: number,
+    startedAt = nowIso(),
+    transcript?: string,
+    room: RoomName = 'Players__Lounge',
+    indexIntoMessages = false
+  ): void {
     if (this.isSuppressed(username)) return;
     this.micGrabs.push({
       id: this.nextGrabId++,
       username,
       started_at: startedAt,
       duration_seconds: durationSeconds,
+      transcript,
     });
+
+    if (transcript && transcript.trim()) {
+      this.audioTranscripts.push({
+        id: this.nextTranscriptId++,
+        speaker: username,
+        transcript: transcript.trim(),
+        duration_seconds: durationSeconds,
+        observed_at: startedAt,
+        room,
+      });
+
+      if (indexIntoMessages) {
+        const timeStr = new Date().toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+        });
+        this.recordMessage(
+          username,
+          `[Mic Audio] ${transcript.trim()}`,
+          timeStr,
+          startedAt,
+          room,
+          false,
+          false,
+          'audio_transcript'
+        );
+      }
+    }
   }
 
   userProfile(username: string): UserProfileResult | null {
@@ -481,9 +596,21 @@ export class CamfrogStore {
       .slice(-20)
       .reverse();
 
+    const recentTranscripts = this.audioTranscripts
+      .filter((t) => t.speaker.toLowerCase() === cleaned.toLowerCase())
+      .slice(-10)
+      .reverse();
+
     const wordCounts = new Map<string, number>();
     for (const row of recentMessages) {
-      const matches = row.body.match(WORD_RE) || [];
+      const matches = row.body.replace(/^\[Mic Audio\]\s*/i, '').match(WORD_RE) || [];
+      for (const word of matches) {
+        const w = word.toLowerCase();
+        wordCounts.set(w, (wordCounts.get(w) || 0) + 1);
+      }
+    }
+    for (const tr of recentTranscripts) {
+      const matches = tr.transcript.match(WORD_RE) || [];
       for (const word of matches) {
         const w = word.toLowerCase();
         wordCounts.set(w, (wordCounts.get(w) || 0) + 1);
@@ -502,6 +629,7 @@ export class CamfrogStore {
     return {
       ...user,
       messages: recentMessages.map((r) => r.body),
+      transcripts: recentTranscripts.map((t) => t.transcript),
       top_word: topWord,
       top_count: topCount,
     };
@@ -533,9 +661,6 @@ export class CamfrogStore {
   }
 }
 
-/**
- * Room-specific trigger and command processor from room_data_processor.py
- */
 export const ROOM_COMMANDS: Record<RoomName, string[]> = {
   Players__Lounge: ['!players', '!lounge', '!room info'],
   Drama_Central: ['!drama', '!central', '!showtime'],
@@ -547,7 +672,7 @@ export const ROOM_TRIGGERS: Partial<
 > = {
   Players__Lounge: {
     trigger_words: ['game', 'play', 'match'],
-    response_template: '@{user} Let\'s play some games in the lounge!',
+    response_template: "@{user} Let's play some games in the lounge!",
     action: 'send_to_room',
   },
   Drama_Central: {
@@ -557,9 +682,6 @@ export const ROOM_TRIGGERS: Partial<
   },
 };
 
-/**
- * Port of CamfrogBot command dispatcher and state machine
- */
 export class CamfrogBotEngine {
   store: CamfrogStore;
   settings: BotSettings;
@@ -586,7 +708,6 @@ export class CamfrogBotEngine {
         minute: '2-digit',
       });
 
-    // A suppressed person must still be able to issue their own !unsuppress command
     if (!sender || (this.store.isSuppressed(sender) && text.trim().toLowerCase() !== '!unsuppress')) {
       return [];
     }
@@ -644,12 +765,14 @@ export class CamfrogBotEngine {
 
     if (normalized === '!transcribe') {
       this.settings.transcription_mode = true;
-      return ['Transcription is marked on, but audio capture is not included in this UIA-only release.'];
+      this.settings.continuous_audio_store = true;
+      return ['Continuous audio transcription is ON; active speaker audio is transcribed and stored to user profiles.'];
     }
 
     if (normalized === '!transcribed') {
       this.settings.transcription_mode = false;
-      return ['Transcription is off.'];
+      this.settings.continuous_audio_store = false;
+      return ['Continuous audio transcription is OFF.'];
     }
 
     if (normalized === '!suppress') {
@@ -686,7 +809,26 @@ export class CamfrogBotEngine {
     }
 
     if (normalized.startsWith('!say')) {
-      return ['Audio broadcast is disabled in this UIA-only release; no microphone action was taken.'];
+      const speechText = raw.slice(4).trim();
+      if (!speechText) {
+        return ['Usage: !say <phrase to broadcast over VB-Cable + Talk Button>'];
+      }
+      if (!this.settings.vb_cable_tts_enabled) {
+        return ['VB-Cable TTS is currently disabled in runtime switches.'];
+      }
+      const estimatedSeconds = Math.max(2, Math.ceil(speechText.split(/\s+/).length * 0.45));
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window && !this.settings.silent_mode) {
+        try {
+          window.speechSynthesis.cancel();
+          const utter = new SpeechSynthesisUtterance(speechText);
+          window.speechSynthesis.speak(utter);
+        } catch {
+          // Ignore browser speech synthesis errors
+        }
+      }
+      return [
+        `[VB-Cable TTS -> ${this.settings.vb_cable_device_name}] Holding Talk Button(50000) at (1326, 1182) for ~${estimatedSeconds}s: "${speechText.slice(0, 160)}"`,
+      ];
     }
 
     if (normalized.startsWith('!diss')) {
@@ -706,19 +848,18 @@ export class CamfrogBotEngine {
 
     if (normalized === '!triggers' || normalized === '!help') {
       return [
-        'Triggers: !chat, !chatoff, !shutup, !suppress, !unsuppress, !who is, !info on, !grabs, !idk, !diss, !say, moderation history, and - for next page.',
+        'Triggers: !chat, !chatoff, !shutup, !transcribe, !transcribed, !suppress, !unsuppress, !who is, !info on, !grabs, !idk, !diss, !say, moderation history, and - for next page.',
       ];
     }
 
-    // Room-specific commands from room_data_processor.py
     if (room === 'Players__Lounge' && (normalized === '!players' || normalized === '!lounge' || normalized === '!room info')) {
-      return [`[Players__Lounge] Active roster: ${this.store.users.size} tracked users in UIA tree.`];
+      return [`[Players__Lounge] Active roster: ${this.store.users.size} tracked users in UIA List(50008).`];
     }
     if (room === 'Drama_Central' && (normalized === '!drama' || normalized === '!central' || normalized === '!showtime')) {
       return [`[Drama_Central] Moderation monitor active (${this.store.moderationEvents.length} logged notices).`];
     }
     if (room === 'Room List' && (normalized === '!rooms' || normalized === '!list' || normalized === '!switch')) {
-      return [`Available UIA tabs: ${Object.keys(ROOM_TAB_POSITIONS).join(', ')}.`];
+      return [`Available UIA tabs: Room List (1390, 50), Players__Lounge (1550, 50).`];
     }
 
     const nativeMatch = /^!(unpunish|unblockmic|unban|topic|watchlist)\s+(.+)$/i.exec(raw);
@@ -731,7 +872,6 @@ export class CamfrogBotEngine {
       return [`@${sender}, I'm here. I caught: ${context.slice(0, 180)}`];
     }
 
-    // Check room trigger words from room_data_processor.py
     const roomTrigger = ROOM_TRIGGERS[room];
     if (roomTrigger && this.settings.chat_mode) {
       for (const word of roomTrigger.trigger_words) {
@@ -762,8 +902,10 @@ export class CamfrogBotEngine {
     }
     const samples = profile.messages.slice(0, 3);
     const sampleText = samples.length > 0 ? samples.join(' | ') : 'no saved chat yet';
+    const voiceNote =
+      profile.transcripts.length > 0 ? ` | Latest mic audio: "${profile.transcripts[0]}"` : '';
     return [
-      `${profile.username}: seen since ${profile.first_seen}; ${profile.message_count} messages. Recent chat: ${sampleText}`,
+      `${profile.username}: seen since ${profile.first_seen}; ${profile.message_count} messages. Recent chat: ${sampleText}${voiceNote}`,
     ];
   }
 
@@ -846,7 +988,6 @@ export class CamfrogBotEngine {
   }
 
   sendReply(recipient: string, message: string, roomTime: string, room: RoomName): boolean {
-    // Allow "!shutup" acknowledgement to be visible before silent mode suppresses subsequent replies
     if (this.settings.silent_mode && !message.startsWith('Silent mode is on')) {
       return false;
     }
@@ -890,9 +1031,6 @@ export interface TestCaseResult {
   details: string;
 }
 
-/**
- * Runs the 4 unit tests from test_bot.py directly in the browser
- */
 export function runOfflineBotTests(): TestCaseResult[] {
   const results: TestCaseResult[] = [];
 
@@ -965,21 +1103,24 @@ export function runOfflineBotTests(): TestCaseResult[] {
     });
   }
 
-  // Test 4: test_ui_text_is_not_guessed_as_a_username
+  // Test 4: test_ui_text_is_not_guessed_as_a_username + ignored ListItem rects
   try {
     const clockRejected = cleanUsername('8:13 AM') === '';
     const toolbarRejected = cleanUsername('GIFTUsers2') === '';
-    const validAccepted = cleanUsername('Alice_1') === 'Alice_1';
+    const ignoredRectRejected = cleanUsername('SomeHeader', [2303, 141, 2559, 163]) === '';
+    const validAccepted = cleanUsername('Alice_1', [2303, 240, 2559, 262]) === 'Alice_1';
     results.push({
-      name: 'test_ui_text_is_not_guessed_as_a_username',
-      description: 'Filters clock strings (8:13 AM) and CEF chrome (GIFTUsers2) from presence roster',
-      passed: Boolean(clockRejected && toolbarRejected && validAccepted),
-      details: `clean("8:13 AM")="${cleanUsername('8:13 AM')}", clean("GIFTUsers2")="${cleanUsername('GIFTUsers2')}", clean("Alice_1")="${cleanUsername('Alice_1')}"`,
+      name: 'test_ui_text_and_ignored_listitem_rects_filtered',
+      description:
+        'Filters clock strings, GIFTUsers2, and ignored User List ListItem(50007) rects [t=141..163, 207..229, 867..889]',
+      passed: Boolean(clockRejected && toolbarRejected && ignoredRectRejected && validAccepted),
+      details: `ignoredRect(2303,141,2559,163)="${cleanUsername('SomeHeader', [2303, 141, 2559, 163])}", valid="Alice_1"`,
     });
   } catch (err) {
     results.push({
-      name: 'test_ui_text_is_not_guessed_as_a_username',
-      description: 'Filters clock strings (8:13 AM) and CEF chrome (GIFTUsers2) from presence roster',
+      name: 'test_ui_text_and_ignored_listitem_rects_filtered',
+      description:
+        'Filters clock strings, GIFTUsers2, and ignored User List ListItem(50007) rects [t=141..163, 207..229, 867..889]',
       passed: false,
       details: String(err),
     });
