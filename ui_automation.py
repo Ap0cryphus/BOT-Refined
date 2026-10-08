@@ -87,11 +87,19 @@ class CamfrogUIAutomation:
                 app = Application(backend="uia").connect(title_re=self.title_re)
                 candidates = app.windows()
             except Exception:
-                # If that fails, try to connect to any Camfrog window and then filter by properties
+                # If that fails, try alternative approaches
                 print("DEBUG: Title-based connection failed, trying alternative approach")
-                app = Application(backend="uia").connect(process=1)  # This might work if we can get a process
-                candidates = app.windows()
-                
+                try:
+                    # Try to connect to any window with a process name containing camfrog
+                    app = Application(backend="uia").connect(process="camfrog")
+                    candidates = app.windows()
+                    print("DEBUG: Connected using process name matching")
+                except Exception:
+                    # If that fails, try to connect to any window and filter manually
+                    print("DEBUG: Process-based connection failed, connecting to all windows")
+                    app = Application(backend="uia").connect()
+                    candidates = app.windows()
+            
             # Login/contact windows can match the title. A room has CEF controls
             # (CButtonTS) and a sizeable client rectangle, so score those first.
             best, best_score = None, -1
@@ -103,7 +111,7 @@ class CamfrogUIAutomation:
                     rect = candidate.rectangle()
                     score = rect.width() * rect.height() // 10000
                     cbutton_count = len(candidate.descendants(class_name="CButtonTS"))
-                    score += cbutton_count * 100
+                    score += cbutton_count * 110  # Slightly higher weight for CButtonTS
                     
                     print(f"DEBUG: Window {i+1} - Title: '{candidate.window_text()}'")
                     print(f"DEBUG:   Size: {rect.width()} x {rect.height()}, CButtonTS count: {cbutton_count}, Score: {score}")
@@ -129,6 +137,11 @@ class CamfrogUIAutomation:
                     except Exception as e:
                         print(f"DEBUG: Error checking for CButtonTS: {e}")
                         continue
+            
+            # If we still don't have a good window, just use the first one that looks like a room
+            if best is None and len(candidates) > 0:
+                print("DEBUG: No best window found, using first candidate as fallback")
+                best = candidates[0]
             
             self.app = app
             self.window = best if best is not None else app.top_window()

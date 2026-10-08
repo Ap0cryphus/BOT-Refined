@@ -38,3 +38,6 @@
 2026-10-08 02:48:01,865 ERROR Camfrog UIA connection failed: {'title_re': '(?i).*Players__Lounge([,:].*?)?\\s*Video Chat Room.*', 'backend': 'uia', 'visible_only': False}
 2026-10-08 02:57:28,162 ERROR Camfrog UIA connection failed: {'title_re': '(?i).*Players__Lounge([,:].*?)?\\s*Video Chat Room.*', 'backend': 'uia', 'visible_only': False}
 2026-10-08 02:57:39,379 ERROR Camfrog UIA connection failed: {'title_re': '(?i).*Players__Lounge([,:].*?)?\\s*Video Chat Room.*', 'backend': 'uia', 'visible_only': False}
+2026-10-08 03:06:40,306 ERROR Camfrog UIA connection failed: You must specify some of process, handle, path or window search criteria.
+2026-10-08 03:10:40,840 ERROR Camfrog UIA connection failed: You must specify some of process, handle, path or window search criteria.
+2026-10-08 03:19:53,678 ERROR Camfrog UIA connection failed: You must specify some of process, handle, path or window search criteria.
