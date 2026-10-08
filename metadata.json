@@ -1,0 +1,5 @@
+{
+  "name": "Camfrog UI-Automation Bot Console",
+  "description": "Windows UI Automation (UIA/CEF) chat monitor, command dispatcher, SQLite suppression vault, and multi-room coordinate inspector for Camfrog rooms.",
+  "requestFramePermissions": []
+}
