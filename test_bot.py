@@ -16,7 +16,13 @@ from config import (
     TALK_BUTTON_RECT,
     USER_LIST_RECT,
 )
-from ui_automation import clean_username, is_user_list_header
+from ui_automation import (
+    CamfrogUIAutomation,
+    UIANode,
+    clean_username,
+    extract_users_header_count,
+    is_user_list_header,
+)
 
 
 class FakeAutomation:
@@ -93,10 +99,25 @@ class CamfrogBotTests(unittest.TestCase):
         self.assertEqual(clean_username("YOU ARE VIEWING 3", (2359, 141, 2559, 163)), "")
         self.assertEqual(clean_username("VIEWING 5", (2359, 185, 2559, 207)), "")
         self.assertEqual(clean_username("LURKERS 14", (2359, 520, 2559, 542)), "")
+        self.assertEqual(clean_username("USERS (48)", (2359, 165, 2543, 187)), "")
+        self.assertEqual(extract_users_header_count("USERS (48)"), 48)
+        self.assertEqual(extract_users_header_count("USERS 35"), 35)
+        self.assertEqual(extract_users_header_count("MEMBERS 17"), 17)
+        self.assertIsNone(extract_users_header_count("YOU ARE VIEWING (0)"))
+        self.assertIsNone(extract_users_header_count("VIEWING 4"))
+        self.assertIsNone(extract_users_header_count("LURKERS (12)"))
         self.assertTrue(is_user_list_header("YOU ARE VIEWING 2"))
         self.assertTrue(is_user_list_header("LURKERS 19"))
+        self.assertTrue(is_user_list_header("USERS (48)"))
         self.assertEqual(clean_username("HeaderItem", (2303, 141, 2559, 163)), "")
-        self.assertEqual(clean_username("Alice_1", (2359, 240, 2559, 262)), "Alice_1")
+        self.assertEqual(clean_username("Alice_1", (2359, 240, 2543, 262)), "Alice_1")
+
+    def test_active_speaker_detected_even_when_uia_name_empty(self) -> None:
+        # Even if Button(50000) at [1506,1174,1548,1190] has empty UIA Name, _find_active_speaker_node detects it
+        unnamed_mic_btn = UIANode("Button", "", "CButtonTS", 1506, 1174, 1548, 1190)
+        found = CamfrogUIAutomation._find_active_speaker_node([unnamed_mic_btn])
+        self.assertIsNotNone(found)
+        self.assertEqual(found.rect_tuple, (1506, 1174, 1548, 1190))
 
     def test_initial_user_list_and_join_quit_duration(self) -> None:
         # Initial users from User List [l=2359,t=141,r=2559,b=1160] are seeded on initialize()
@@ -123,6 +144,42 @@ class CamfrogBotTests(unittest.TestCase):
         self.ui.active_speaker = None
         self.bot.poll_once()
         self.assertEqual(self.ui.tts_broadcasts, ["Hello Players Lounge", "Queued until Rosie finishes"])
+
+    def test_compound_dataitem_presence_and_user_count_minus_3(self) -> None:
+        # 1. Compound DataItem(50029) at [l=1332,r=2330] containing multiple Quit:/Join: events in a single item
+        tokens = [
+            ("DataItem", "Quit: phoenixrising Quit: liketosquirt Join: ward1dp"),
+            ("Text", "Quit:"),
+            ("Text", "phoenixrising"),
+            ("Text", "Quit:"),
+            ("Text", "liketosquirt"),
+            ("Text", "Join:"),
+            ("Text", "ward1dp"),
+        ]
+        events = CamfrogUIAutomation._parse_text_tokens_into_events(tokens)
+        presence_pairs = [(e["action"], e["user"]) for e in events if e["kind"] == "presence"]
+        self.assertIn(("quit", "phoenixrising"), presence_pairs)
+        self.assertIn(("quit", "liketosquirt"), presence_pairs)
+        self.assertIn(("join", "ward1dp"), presence_pairs)
+
+        # 2. User List counting: excludes Page scrollbar and subtracts the 3 section headers (YOU ARE VIEWING, MEMBERS, LURKERS)
+        ui = CamfrogUIAutomation()
+        fake_nodes = [
+            UIANode("ListItem", "YOU ARE VIEWING 0", "", 2359, 141, 2543, 163),
+            UIANode("ListItem", "MEMBERS 14", "", 2359, 165, 2543, 187),
+            UIANode("ListItem", "10 Mr,Bl3sS", "", 2359, 190, 2543, 212),
+            UIANode("ListItem", "tsyko", "", 2359, 215, 2543, 237),
+            UIANode("ListItem", "Gothic_Chaos", "", 2359, 240, 2543, 262),
+            UIANode("ListItem", "LURKERS 11", "", 2359, 520, 2543, 542),
+            UIANode("ListItem", "KaeKae_Toad", "", 2359, 545, 2543, 567),
+            UIANode("Button", "Page", "", 2544, 200, 2559, 800),
+        ]
+        count, users = ui._scan_users_header_and_list_from_uia(fake_nodes)
+        self.assertEqual(count, 25)  # 14 MEMBERS + 11 LURKERS = 25
+        self.assertNotIn("Page", users)
+        self.assertIn("tsyko", users)
+        self.assertIn("Gothic_Chaos", users)
+        self.assertIn("KaeKae_Toad", users)
 
     def test_calibrated_coordinates_constants(self) -> None:
         self.assertEqual(CHAT_WINDOW_RECT, (1281, 170, 2355, 1160))

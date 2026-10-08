@@ -374,6 +374,12 @@ class CamfrogStore:
                 (username, started_at, float(duration_seconds), str(transcript or "").strip()),
             )
 
+    def active_user_count(self) -> int:
+        """Return the number of users currently marked active in the room (from Initial User List + Join: - Quit:)."""
+        with self._session() as db:
+            row = db.execute("SELECT COUNT(*) FROM bot_users WHERE active = 1").fetchone()
+            return int(row[0]) if row else 0
+
     def user_chat_duration_seconds(self, username: str) -> float:
         with self._session() as db:
             row = db.execute(
@@ -447,7 +453,7 @@ class CamfrogBot:
         self._speaker_started_mono: float = 0.0
         self.initial_users: list[str] = []
 
-    def initialize(self) -> bool:
+    def initialize(self, *, mark_existing_seen: bool = True) -> bool:
         if not self.ui_automation.connect_to_camfrog():
             LOG.error("%s", self.ui_automation.last_error)
             return False
@@ -461,9 +467,18 @@ class CamfrogBot:
             except Exception as error:
                 LOG.warning("Initial user list scan failed: %s", error)
 
-        # 2. Mark pre-existing chat scrollback as seen so we only dispatch on new live events
-        for event in self.ui_automation.get_chat_events():
-            self._seen.add(self._event_key(event))
+        # 2. Mark pre-existing chat scrollback as seen in continuous mode so we only dispatch on new live events,
+        #    while still recording Join:/Quit: presence and moderation notices from visible scrollback!
+        if mark_existing_seen:
+            for event in self.ui_automation.get_chat_events():
+                key = self._event_key(event)
+                self._seen.add(key)
+                if event.get("kind") == "presence":
+                    self.store.record_presence(event.get("user", ""), event.get("action", "join"), key)
+                elif event.get("kind") == "message":
+                    moderation = detect_moderation(event.get("text", ""))
+                    if moderation:
+                        self.store.record_moderation(moderation, event.get("text", ""))
 
         self.running = True
         self.settings["running"] = True
@@ -522,6 +537,8 @@ class CamfrogBot:
 
     def poll_once(self) -> int:
         processed = 0
+        if hasattr(self.ui_automation, "nodes"):
+            self.ui_automation.nodes(refresh=True)
         self._track_active_speaker()
         for event in self.ui_automation.get_chat_events():
             key = self._event_key(event)
@@ -644,7 +661,12 @@ class CamfrogBot:
             return [f"No stored profile for {username or 'that user'}."]
         samples = profile["messages"][:3]
         sample_text = " | ".join(samples) if samples else "no saved chat yet"
-        return [f"{profile['username']}: seen since {profile['first_seen']}; {profile['message_count']} messages. Recent chat: {sample_text}"]
+        chat_mins = float(profile.get("chat_duration_seconds") or 0.0) / 60.0
+        status = "in room" if profile.get("active") else "left room"
+        return [
+            f"{profile['username']} ({status}, {chat_mins:.1f}m in chat): seen since {profile['first_seen']}; "
+            f"{profile['message_count']} messages. Recent chat: {sample_text}"
+        ]
 
     def _info_on(self, username: str) -> list[str]:
         username = clean_username(username)
@@ -652,7 +674,11 @@ class CamfrogBot:
         if not profile:
             return [f"No stored statistics for {username or 'that user'}."]
         grabs, seconds = self.store.mic_stats(str(profile["username"]), 24 * 3600)
-        return [f"{profile['username']}: {profile['message_count']} messages; top word '{profile['top_word']}' ({profile['top_count']}x); {grabs} mic grabs / {seconds:.0f}s in 24h."]
+        chat_mins = float(profile.get("chat_duration_seconds") or 0.0) / 60.0
+        return [
+            f"{profile['username']}: {profile['message_count']} messages; room time {chat_mins:.1f}m; "
+            f"top word '{profile['top_word']}' ({profile['top_count']}x); {grabs} mic grabs / {seconds:.0f}s in 24h."
+        ]
 
     def _grabs(self, arguments: str) -> list[str]:
         parts = arguments.split()
@@ -739,8 +765,13 @@ class CamfrogBot:
     def run(self, interval: float = POLL_INTERVAL_SECONDS) -> None:
         if not self.running and not self.initialize():
             raise RuntimeError(self.ui_automation.last_error)
+        user_count = (
+            self.ui_automation.get_user_count()
+            if hasattr(self.ui_automation, "get_user_count")
+            else len(self.initial_users)
+        )
         print(
-            f"Camfrog bot running ({len(self.initial_users)} users in room from {USER_LIST_RECT}). "
+            f"Camfrog bot running (USERS (#): {user_count} | Roster seeded: {len(self.initial_users)} from {USER_LIST_RECT}). "
             f"Watching Chat {CHAT_WINDOW_RECT}, Input {CHAT_INPUT_RECT}, Talk {TALK_BUTTON_RECT}, "
             f"Active Speaker {ACTIVE_SPEAKER_RECT} ('{BOT_USERNAME}' {MIC_CONFIRM_PERSIST_SECONDS}s gate). "
             "Press Ctrl+C to stop."
@@ -753,19 +784,39 @@ class CamfrogBot:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Camfrog UI Automation bot (with VB-Cable TTS)")
     parser.add_argument("--dry-run", action="store_true", help="Read/process UIA text but print replies instead of sending them.")
-    parser.add_argument("--once", action="store_true", help="Connect and execute one scan.")
+    parser.add_argument("--once", action="store_true", help="Connect and execute one full scan (including visible scrollback).")
     parser.add_argument("--interval", type=float, default=POLL_INTERVAL_SECONDS, help="Polling interval in seconds.")
     parser.add_argument("--locations", action="store_true", help="Print the live UIA-derived locations and exit.")
+    parser.add_argument("--inspect", action="store_true", help="Print diagnostic UIA nodes inside all calibrated regions and exit.")
     args = parser.parse_args(argv)
     bot = CamfrogBot(dry_run=args.dry_run)
-    if not bot.initialize():
+    if not bot.initialize(mark_existing_seen=not args.once):
         print(bot.ui_automation.last_error)
         return 1
     if args.locations:
         print(json.dumps(bot.ui_automation.layout_locations(), indent=2))
         return 0
+    if args.inspect:
+        if hasattr(bot.ui_automation, "inspect_calibrated_regions"):
+            print(json.dumps(bot.ui_automation.inspect_calibrated_regions(refresh=True), indent=2))
+        return 0
     if args.once:
-        print(f"Processed {bot.poll_once()} new UIA event(s).")
+        speaker = bot.ui_automation.get_active_speaker() if hasattr(bot.ui_automation, "get_active_speaker") else None
+        user_count = (
+            bot.ui_automation.get_user_count()
+            if hasattr(bot.ui_automation, "get_user_count")
+            else len(bot.initial_users)
+        )
+        print(
+            f"Room User Count ('USERS (#)'): {user_count} | Listed Usernames [l=2359,r=2559]: {len(bot.initial_users)} "
+            f"{bot.initial_users[:15]}"
+        )
+        print(f"Active Speaker [1506,1174,1548,1190]: {speaker or 'None (mic free / erased)'}")
+        count = bot.poll_once()
+        print(f"Processed {count} UIA chat/presence event(s) from Chat Window {CHAT_WINDOW_RECT}.")
+        if count == 0 and hasattr(bot.ui_automation, "inspect_calibrated_regions"):
+            print("Diagnostic region snapshot:")
+            print(json.dumps(bot.ui_automation.inspect_calibrated_regions(refresh=False), indent=2))
         return 0
     try:
         bot.run(args.interval)
