@@ -1,7 +1,8 @@
 /**
  * Faithful TypeScript port of config.py, ui_automation.py, camfrog_bot.py,
  * room_data_processor.py, and test_bot.py — updated with exact calibrated
- * UIA coordinates and continuous audio transcription storage.
+ * UIA coordinates, user-list trending [l=2359,r=2559] + VIEWING/LURKERS filter,
+ * Join/Quit chat duration pipeline, and KaeKae_Toad 1.3s active-speaker persistence.
  */
 
 export const CAPTURE_BACKEND = 'uia';
@@ -10,11 +11,17 @@ export const DXCAM_ENABLED = false;
 export const TESSERACT_ENABLED = false;
 export const IMAGE_CAPTURE_ENABLED = false;
 
-export const CAMFROG_WINDOW_TITLE_RE = '(?i).*Players__Lounge([,:].*?)?\\s*Video Chat Room.*';
+export const CAMFROG_WINDOW_TITLE_RE = '(?i).*(Players__Lounge|Drama_Central|Camfrog|Video Chat Room).*';
 export const POLL_INTERVAL_SECONDS = 0.75;
 export const UIA_CACHE_SECONDS = 0.30;
 export const MAX_CHAT_MESSAGE_LENGTH = 425;
 export const CHAT_HISTORY_LIMIT = 10;
+
+export const BOT_USERNAME = 'KaeKae_Toad';
+export const MIC_CONFIRM_PERSIST_SECONDS = 1.3;
+export const TALK_DOUBLE_CLICK_DELAY_SECONDS = 0.06;
+export const MAX_ROOM_USERS = 100;
+export const USER_LIST_ITEM_X_SPAN: [number, number] = [2359, 2559];
 
 export type RoomName = 'Room List' | 'Players__Lounge' | 'Drama_Central';
 
@@ -37,28 +44,61 @@ export const ROOM_TAB_POSITIONS: Record<RoomName, [number, number, number, numbe
 
 /**
  * Exact calibrated UIA Control BoundingRectangles [left, top, right, bottom]:
- * - Chat Window: Pane(50033) [l=1281,t=170,r=2299,b=1160]
- * - Talk Button: Button(50000) [l=1291,t=1169,r=1361,b=1195]
- * - User List: List(50008) [l=2303,t=141,r=2559,b=1160]
+ * 1. Chat Window: Pane(50033) [l=1281,t=170,r=2355,b=1160] (IsKeyboardFocusable=True)
+ *    & Text(50020) [l=1281,t=170,r=2355,b=1160] (IsKeyboardFocusable=False)
+ * 2. Chat Txt Field: Pane(50033) [l=1396,t=1206,r=2497,b=1241] (IsKeyboardFocusable=False)
+ * 3. User List: List(50008) [l=2359,t=141,r=2559,b=1160] (IsKeyboardFocusable=True, items trend [l=2359,r=2559])
+ * 4. Talk Button: Button(50000) [l=1291,t=1169,r=1361,b=1195] (IsKeyboardFocusable=True, 2 quick clicks + hold)
+ * 5. Active Speaker: Button(50000) [l=1506,t=1174,r=1548,b=1190] (IsKeyboardFocusable=True, KaeKae_Toad 1.3s gate)
+ * 6. Top Gifters / Combined Text: Text(50020) [l=1281,t=71,r=2559,b=1160] (IsKeyboardFocusable=False)
  */
 export const CALIBRATED_UIA_RECTS = {
   chat_window: {
     control_type: 'Pane(50033)',
-    rect: [1281, 170, 2299, 1160] as [number, number, number, number],
+    localized_type: 'pane',
+    focusable: true,
+    rect: [1281, 170, 2355, 1160] as [number, number, number, number],
   },
-  talk_button: {
-    control_type: 'Button(50000)',
-    rect: [1291, 1169, 1361, 1195] as [number, number, number, number],
+  chat_text: {
+    control_type: 'Text(50020)',
+    localized_type: 'text',
+    focusable: false,
+    rect: [1281, 170, 2355, 1160] as [number, number, number, number],
+  },
+  chat_input: {
+    control_type: 'Pane(50033)',
+    localized_type: 'pane',
+    focusable: false,
+    rect: [1396, 1206, 2497, 1241] as [number, number, number, number],
   },
   user_list: {
     control_type: 'List(50008)',
-    rect: [2303, 141, 2559, 1160] as [number, number, number, number],
+    localized_type: 'list',
+    focusable: true,
+    rect: [2359, 141, 2559, 1160] as [number, number, number, number],
+  },
+  talk_button: {
+    control_type: 'Button(50000)',
+    localized_type: 'button',
+    focusable: true,
+    rect: [1291, 1169, 1361, 1195] as [number, number, number, number],
+  },
+  active_speaker: {
+    control_type: 'Button(50000)',
+    localized_type: 'button',
+    focusable: true,
+    rect: [1506, 1174, 1548, 1190] as [number, number, number, number],
+  },
+  top_gifters: {
+    control_type: 'Text(50020)',
+    localized_type: 'text',
+    focusable: false,
+    rect: [1281, 71, 2559, 1160] as [number, number, number, number],
   },
 };
 
 /**
- * Specific ListItem(50007) bounding rectangles in the User List (r=2559)
- * that represent section headers/separators and MUST be ignored when extracting usernames:
+ * Legacy ListItem(50007) bounding rectangles kept alongside dynamic "YOU ARE VIEWING #" / "LURKERS #" filtering:
  */
 export const IGNORED_USER_LIST_RECTS: Array<[number, number, number, number]> = [
   [2303, 141, 2559, 163],
@@ -69,7 +109,7 @@ export const IGNORED_USER_LIST_RECTS: Array<[number, number, number, number]> = 
 export function isIgnoredUserListItemRect(rect: [number, number, number, number]): boolean {
   const [l, t, r, b] = rect;
   return IGNORED_USER_LIST_RECTS.some(
-    ([il, it, ir, ib]) => l === il && t === it && r === ir && b === ib
+    ([il, it, ir, ib]) => Math.abs(l - il) <= 2 && Math.abs(t - it) <= 2 && Math.abs(r - ir) <= 2 && Math.abs(b - ib) <= 2
   );
 }
 
@@ -78,6 +118,9 @@ export const VB_CABLE_CONFIG = {
   recording_device: 'CABLE Output (VB-Audio Virtual Cable)',
   talk_button_center: [1326, 1182] as [number, number],
   talk_button_rect: [1291, 1169, 1361, 1195] as [number, number, number, number],
+  active_speaker_rect: [1506, 1174, 1548, 1190] as [number, number, number, number],
+  bot_username: BOT_USERNAME,
+  mic_confirm_persist_seconds: MIC_CONFIRM_PERSIST_SECONDS,
 };
 
 export interface BotSettings {
@@ -137,49 +180,89 @@ export const TRIGGER_NAMES = [
 
 const CLOCK_RE = /^\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?$/i;
 const COMPACT_CLOCK_RE = /^\d{3,4}(?:AM|PM)$/i;
-const USERNAME_RE = /^[A-Za-z0-9_$-]{2,32}$/;
+const USERNAME_RE = /^[A-Za-z0-9_$.\-[\]@~^]{2,32}$/;
 const PANEL_LABELS = new Set([
   'talk',
   'push-to-talk',
+  'pushtotalk',
   'camfrog',
   'users',
   'user',
   'members',
   'lurkers',
+  'lurker',
   'youareviewing',
+  'viewing',
   'search',
   'gifts',
   'giftusers',
+  'giftusers2',
+  'topgifters',
   'yourvideo',
   'room',
   'chat',
+  'roomlist',
+  'players__lounge',
+  'drama_central',
 ]);
+
+const USER_LIST_HEADER_RE =
+  /^\s*(?:you\s*are\s*viewing(?:\s*[:()\-]*\s*\d+\s*\)?)?|youareviewing\d*|viewing(?:\s*[:()\-]*\s*\d+\s*\)?)?|lurkers?(?:\s*[:()\-]*\s*\d+\s*\)?)?|users?(?:\s*[:()\-]*\s*\d+\s*\)?)?|members?(?:\s*[:()\-]*\s*\d+\s*\)?)?|friends?(?:\s*[:()\-]*\s*\d+\s*\)?)?|top\s*gifters?(?:\s*[:()\-]*\s*\d+\s*\)?)?|gift\s*users?\s*\d*)\s*$/i;
 
 const WORD_RE = /[A-Za-z][A-Za-z'-]{2,}/g;
 const MOD_RE =
-  /^\s*(?<actor>[A-Za-z0-9_$-]{2,32})\s+(?:was\s+)?(?<action>unpunished|unblocked|unbanned|punished|blocked|banned|kicked)\s+(?<target>[A-Za-z0-9_$-]{2,32})(?:\s+microphone)?\s*[.!]?\s*$/i;
+  /^\s*(?<actor>[A-Za-z0-9_$.\-[\]@~^]{2,32})\s+(?:was\s+)?(?<action>unpunished|unblocked|unbanned|punished|blocked|banned|kicked)\s+(?<target>[A-Za-z0-9_$.\-[\]@~^]{2,32})(?:\s+microphone)?\s*[.!]?\s*$/i;
 const MOD_BY_RE =
-  /^\s*(?<target>[A-Za-z0-9_$-]{2,32})\s+was\s+(?<action>unpunished|unblocked|unbanned|punished|blocked|banned|kicked)\s+by\s+(?<actor>[A-Za-z0-9_$-]{2,32})\s*[.!]?\s*$/i;
+  /^\s*(?<target>[A-Za-z0-9_$.\-[\]@~^]{2,32})\s+was\s+(?<action>unpunished|unblocked|unbanned|punished|blocked|banned|kicked)\s+by\s+(?<actor>[A-Za-z0-9_$.\-[\]@~^]{2,32})\s*[.!]?\s*$/i;
 const HISTORY_RE =
-  /^who\s+(?<action>kicked|blocked|unblocked|banned|unbanned|punished|unpunished)\s+(?<target>[A-Za-z0-9_$-]{2,32})\s*\??$/i;
+  /^who\s+(?<action>kicked|blocked|unblocked|banned|unbanned|punished|unpunished)\s+(?<target>[A-Za-z0-9_$.\-[\]@~^]{2,32})\s*\??$/i;
 
 /**
- * Return a valid Camfrog username, or an empty string for UI chrome or ignored ListItem rects.
+ * Return True for dynamic section headers in User List [l=2359, r=2559]:
+ * e.g. "YOU ARE VIEWING 3", "VIEWING 2", "LURKERS 14", "TOP GIFTERS", etc.
+ */
+export function isUserListHeader(value: string): boolean {
+  const raw = String(value || '').trim();
+  if (!raw) return true;
+  if (USER_LIST_HEADER_RE.test(raw)) return true;
+  const lower = raw.toLowerCase();
+  if (lower.includes('you are viewing') || lower.includes('youareviewing')) return true;
+  if (/\b(?:viewing|lurkers?)\s*[:()\-]*\s*\d+/i.test(lower)) return true;
+  const compact = lower.replace(/[^a-z0-9]/g, '');
+  if (
+    compact.startsWith('youareviewing') ||
+    compact.startsWith('viewing') ||
+    compact.startsWith('lurkers') ||
+    compact.startsWith('giftusers') ||
+    compact.startsWith('topgifters')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Return a valid Camfrog username, or an empty string for UI chrome, VIEWING #, LURKERS #, or ignored rects.
  */
 export function cleanUsername(value: string, rect?: [number, number, number, number]): string {
   if (rect && isIgnoredUserListItemRect(rect)) {
     return '';
   }
   const raw = String(value || '').trim();
+  if (!raw) return '';
   if (CLOCK_RE.test(raw) || COMPACT_CLOCK_RE.test(raw)) {
     return '';
   }
-  const name = raw.replace(/[^A-Za-z0-9_$-]/g, '').slice(0, 32);
-  const lower = name.toLowerCase();
-  if (lower === 'giftusers2') {
+  if (isUserListHeader(raw)) {
     return '';
   }
-  return USERNAME_RE.test(name) && !PANEL_LABELS.has(lower) ? name : '';
+  const trimmed = raw.replace(/^@+/, '').trim();
+  const name = trimmed.replace(/[^A-Za-z0-9_$.\-[\]~^]/g, '').slice(0, 32);
+  const lower = name.toLowerCase();
+  if (!name || PANEL_LABELS.has(lower) || isUserListHeader(name)) {
+    return '';
+  }
+  return USERNAME_RE.test(name) ? name : '';
 }
 
 export interface ModerationNotice {
@@ -210,6 +293,14 @@ export function nowIso(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, '+00:00');
 }
 
+export function secondsBetweenIso(startIso: string, endIso: string): number {
+  if (!startIso || !endIso) return 0;
+  const s = Date.parse(startIso);
+  const e = Date.parse(endIso);
+  if (Number.isNaN(s) || Number.isNaN(e)) return 0;
+  return Math.max(0, Math.round((e - s) / 1000));
+}
+
 export function normalizeMessage(text: string): string {
   return String(text || '')
     .toLowerCase()
@@ -238,6 +329,8 @@ export interface BotUserRow {
   last_seen: string;
   message_count: number;
   active: number;
+  joined_at: string;
+  total_chat_seconds: number;
 }
 
 export interface BotMessageRow {
@@ -304,6 +397,7 @@ export interface UserProfileResult extends BotUserRow {
   transcripts: string[];
   top_word: string;
   top_count: number;
+  chat_duration_seconds: number;
 }
 
 export interface UIANode {
@@ -315,11 +409,12 @@ export interface UIANode {
   top: number;
   right: number;
   bottom: number;
+  focusable?: boolean;
   ignored_reason?: string;
 }
 
 /**
- * In-memory port of CamfrogStore (SQLite tables + non-queryable suppression vault + audio transcripts)
+ * In-memory port of CamfrogStore (SQLite tables + non-queryable suppression vault + Join/Quit duration tracking)
  */
 export class CamfrogStore {
   users: Map<string, BotUserRow> = new Map();
@@ -342,6 +437,20 @@ export class CamfrogStore {
   }
 
   private seedFromExistingDb(): void {
+    // 1. Seed initial room roster from User List [l=2359,t=141,r=2559,b=1160]
+    this.seedInitialUsers([
+      'Stonerwayne1000',
+      'Rosie',
+      'nico1ee',
+      'skracH_iLL_Man_',
+      'Players_Lounge1',
+      'WutUpWattz',
+      'gmoney165',
+      'Nick73',
+      'irreplacable',
+      'CYBERBABY2',
+    ]);
+
     const initialMessages: Array<{ username: string; body: string; room_time: string; observed_at: string; room: RoomName }> = [
       { username: 'irreplacable', body: 'seem one good way do like that as their meant', room_time: '6:36 PM', observed_at: '2026-10-08T01:37:04+00:00', room: 'Players__Lounge' },
       { username: 'Stonerwayne1000', body: 'back', room_time: '6:36 PM', observed_at: '2026-10-08T01:37:04+00:00', room: 'Players__Lounge' },
@@ -377,7 +486,36 @@ export class CamfrogStore {
       'skracH_iLL_Man_ blocked CYBERBABY2 microphone.',
       '2026-10-08T01:37:45+00:00'
     );
-    // Note: No fake mic_grabs or audio_transcripts are seeded; only real captured active-speaker events are stored.
+  }
+
+  seedInitialUsers(usernames: string[], observedAt = nowIso()): number {
+    let count = 0;
+    for (const raw of usernames) {
+      const cleaned = cleanUsername(raw);
+      if (!cleaned || this.isSuppressed(cleaned)) continue;
+      const key = cleaned.toLowerCase();
+      const existing = this.users.get(key);
+      if (existing) {
+        existing.last_seen = observedAt;
+        existing.active = 1;
+        if (!existing.joined_at) {
+          existing.joined_at = observedAt;
+        }
+      } else {
+        this.users.set(key, {
+          username: cleaned,
+          first_seen: observedAt,
+          last_seen: observedAt,
+          message_count: 0,
+          active: 1,
+          joined_at: observedAt,
+          total_chat_seconds: 0,
+        });
+      }
+      count += 1;
+      if (count >= MAX_ROOM_USERS) break;
+    }
+    return count;
   }
 
   isSuppressed(username: string): boolean {
@@ -478,6 +616,9 @@ export class CamfrogStore {
         existing.last_seen = observedAt;
         existing.message_count += 1;
         existing.active = 1;
+        if (!existing.joined_at) {
+          existing.joined_at = observedAt;
+        }
       } else {
         this.users.set(userKey, {
           username,
@@ -485,6 +626,8 @@ export class CamfrogStore {
           last_seen: observedAt,
           message_count: 1,
           active: 1,
+          joined_at: observedAt,
+          total_chat_seconds: 0,
         });
       }
     }
@@ -492,7 +635,8 @@ export class CamfrogStore {
   }
 
   recordPresence(username: string, action: 'join' | 'quit', eventKey: string, room: RoomName = 'Players__Lounge'): void {
-    if (this.isSuppressed(username)) {
+    const cleaned = cleanUsername(username);
+    if (!cleaned || this.isSuppressed(cleaned)) {
       return;
     }
     if (this.presenceEvents.some((e) => e.event_key === eventKey)) {
@@ -502,24 +646,47 @@ export class CamfrogStore {
     this.presenceEvents.push({
       id: this.nextPresenceId++,
       event_key: eventKey,
-      username,
+      username: cleaned,
       action,
       observed_at: observedAt,
       room,
     });
-    const userKey = username.toLowerCase();
+    const userKey = cleaned.toLowerCase();
     const existing = this.users.get(userKey);
-    if (existing) {
-      existing.last_seen = observedAt;
-      existing.active = action === 'join' ? 1 : 0;
+    if (action === 'join') {
+      if (existing) {
+        existing.last_seen = observedAt;
+        existing.active = 1;
+        existing.joined_at = observedAt;
+      } else {
+        this.users.set(userKey, {
+          username: cleaned,
+          first_seen: observedAt,
+          last_seen: observedAt,
+          message_count: 0,
+          active: 1,
+          joined_at: observedAt,
+          total_chat_seconds: 0,
+        });
+      }
     } else {
-      this.users.set(userKey, {
-        username,
-        first_seen: observedAt,
-        last_seen: observedAt,
-        message_count: 0,
-        active: action === 'join' ? 1 : 0,
-      });
+      if (existing) {
+        const elapsed = secondsBetweenIso(existing.joined_at, observedAt);
+        existing.total_chat_seconds = (existing.total_chat_seconds || 0) + Math.max(1, elapsed);
+        existing.joined_at = '';
+        existing.last_seen = observedAt;
+        existing.active = 0;
+      } else {
+        this.users.set(userKey, {
+          username: cleaned,
+          first_seen: observedAt,
+          last_seen: observedAt,
+          message_count: 0,
+          active: 0,
+          joined_at: '',
+          total_chat_seconds: 0,
+        });
+      }
     }
   }
 
@@ -547,10 +714,11 @@ export class CamfrogStore {
     room: RoomName = 'Players__Lounge',
     indexIntoMessages = false
   ): void {
-    if (this.isSuppressed(username)) return;
+    const cleaned = cleanUsername(username);
+    if (!cleaned || this.isSuppressed(cleaned)) return;
     this.micGrabs.push({
       id: this.nextGrabId++,
-      username,
+      username: cleaned,
       started_at: startedAt,
       duration_seconds: durationSeconds,
       transcript,
@@ -559,7 +727,7 @@ export class CamfrogStore {
     if (transcript && transcript.trim()) {
       this.audioTranscripts.push({
         id: this.nextTranscriptId++,
-        speaker: username,
+        speaker: cleaned,
         transcript: transcript.trim(),
         duration_seconds: durationSeconds,
         observed_at: startedAt,
@@ -572,7 +740,7 @@ export class CamfrogStore {
           minute: '2-digit',
         });
         this.recordMessage(
-          username,
+          cleaned,
           `[Mic Audio] ${transcript.trim()}`,
           timeStr,
           startedAt,
@@ -626,12 +794,18 @@ export class CamfrogStore {
       }
     }
 
+    let chatDuration = user.total_chat_seconds || 0;
+    if (user.active === 1 && user.joined_at) {
+      chatDuration += secondsBetweenIso(user.joined_at, nowIso());
+    }
+
     return {
       ...user,
       messages: recentMessages.map((r) => r.body),
       transcripts: recentTranscripts.map((t) => t.transcript),
       top_word: topWord,
       top_count: topCount,
+      chat_duration_seconds: chatDuration,
     };
   }
 
@@ -687,7 +861,8 @@ export class CamfrogBotEngine {
   settings: BotSettings;
   allowedModerationSenders: Set<string>;
   currentRoom: RoomName = 'Players__Lounge';
-  activeSpeaker: string | null = 'Stonerwayne1000';
+  activeSpeaker: string | null = null;
+  queuedBroadcasts: string[] = [];
   private recentMessages: Array<[string, string]> = [];
   private pages: Map<string, string[]> = new Map();
   dissJobs: Map<string, number> = new Map();
@@ -766,7 +941,9 @@ export class CamfrogBotEngine {
     if (normalized === '!transcribe') {
       this.settings.transcription_mode = true;
       this.settings.continuous_audio_store = true;
-      return ['Continuous audio transcription is ON; active speaker audio is transcribed and stored to user profiles.'];
+      return [
+        'Continuous audio transcription is ON; active speaker at Button(50000) [1506,1174,1548,1190] is transcribed and stored to user profiles.',
+      ];
     }
 
     if (normalized === '!transcribed') {
@@ -816,6 +993,12 @@ export class CamfrogBotEngine {
       if (!this.settings.vb_cable_tts_enabled) {
         return ['VB-Cable TTS is currently disabled in runtime switches.'];
       }
+      if (this.activeSpeaker && this.activeSpeaker.toLowerCase() !== BOT_USERNAME.toLowerCase()) {
+        this.queuedBroadcasts.push(speechText);
+        return [
+          `[Mic Busy @ [1506,1174,1548,1190]: ${this.activeSpeaker}] Cannot click Talk Button while ${this.activeSpeaker} is on mic. Queued "${speechText.slice(0, 120)}" until [1506,1174,1548,1190] clears.`,
+        ];
+      }
       const estimatedSeconds = Math.max(2, Math.ceil(speechText.split(/\s+/).length * 0.45));
       if (typeof window !== 'undefined' && 'speechSynthesis' in window && !this.settings.silent_mode) {
         try {
@@ -827,7 +1010,7 @@ export class CamfrogBotEngine {
         }
       }
       return [
-        `[VB-Cable TTS -> ${this.settings.vb_cable_device_name}] Holding Talk Button(50000) at (1326, 1182) for ~${estimatedSeconds}s: "${speechText.slice(0, 160)}"`,
+        `[VB-Cable TTS -> ${this.settings.vb_cable_device_name}] 2 quick clicks + hold on Talk Button(50000) [1291,1169,1361,1195], "${BOT_USERNAME}" persisted ${MIC_CONFIRM_PERSIST_SECONDS}s at [1506,1174,1548,1190], broadcasting ~${estimatedSeconds}s then releasing mic: "${speechText.slice(0, 140)}"`,
       ];
     }
 
@@ -853,7 +1036,7 @@ export class CamfrogBotEngine {
     }
 
     if (room === 'Players__Lounge' && (normalized === '!players' || normalized === '!lounge' || normalized === '!room info')) {
-      return [`[Players__Lounge] Active roster: ${this.store.users.size} tracked users in UIA List(50008).`];
+      return [`[Players__Lounge] Active roster: ${this.store.users.size} tracked users in UIA List(50008) [l=2359,t=141,r=2559,b=1160].`];
     }
     if (room === 'Drama_Central' && (normalized === '!drama' || normalized === '!central' || normalized === '!showtime')) {
       return [`[Drama_Central] Moderation monitor active (${this.store.moderationEvents.length} logged notices).`];
@@ -1001,7 +1184,7 @@ export class CamfrogBotEngine {
         room,
       });
       this.store.recordMessage(
-        'kaekae_bot',
+        BOT_USERNAME,
         this.settings.dry_run ? `[dry-run -> ${recipient}] ${page}` : page,
         roomTime,
         nowIso(),
@@ -1014,7 +1197,7 @@ export class CamfrogBotEngine {
   }
 
   static splitForChat(message: string): string[] {
-    const text = String(message).trim();
+    const text = String(message).strip();
     if (!text) return [''];
     const chunks: string[] = [];
     for (let i = 0; i < text.length; i += MAX_CHAT_MESSAGE_LENGTH) {
@@ -1045,14 +1228,14 @@ export function runOfflineBotTests(): TestCaseResult[] {
     const infoSent = bot.sentReplies.some((r) => r.text.includes('Alice_1: 2 messages') && r.text.includes("top word 'python' (2x)"));
     results.push({
       name: 'test_records_message_and_serves_info',
-      description: 'Records UIA message, computes word frequency, and responds to !info on <user>',
+      description: 'Records UIA message from [l=1281,t=170,r=2355,b=1160], computes word frequency, and responds to !info on <user>',
       passed: Boolean(msgCountOk && infoSent),
       details: bot.sentReplies[0]?.text || 'No reply emitted',
     });
   } catch (err) {
     results.push({
       name: 'test_records_message_and_serves_info',
-      description: 'Records UIA message, computes word frequency, and responds to !info on <user>',
+      description: 'Records UIA message from [l=1281,t=170,r=2355,b=1160], computes word frequency, and responds to !info on <user>',
       passed: false,
       details: String(err),
     });
@@ -1103,24 +1286,73 @@ export function runOfflineBotTests(): TestCaseResult[] {
     });
   }
 
-  // Test 4: test_ui_text_is_not_guessed_as_a_username + ignored ListItem rects
+  // Test 4: test_ui_text_and_viewing_lurkers_filtered
   try {
     const clockRejected = cleanUsername('8:13 AM') === '';
-    const toolbarRejected = cleanUsername('GIFTUsers2') === '';
-    const ignoredRectRejected = cleanUsername('SomeHeader', [2303, 141, 2559, 163]) === '';
-    const validAccepted = cleanUsername('Alice_1', [2303, 240, 2559, 262]) === 'Alice_1';
+    const viewingRejected = cleanUsername('YOU ARE VIEWING 4', [2359, 141, 2559, 163]) === '';
+    const viewingShortRejected = cleanUsername('VIEWING 2', [2359, 185, 2559, 207]) === '';
+    const lurkersRejected = cleanUsername('LURKERS 18', [2359, 520, 2559, 542]) === '';
+    const validAccepted = cleanUsername('Alice_1', [2359, 240, 2559, 262]) === 'Alice_1';
     results.push({
-      name: 'test_ui_text_and_ignored_listitem_rects_filtered',
+      name: 'test_ui_text_and_viewing_lurkers_filtered',
       description:
-        'Filters clock strings, GIFTUsers2, and ignored User List ListItem(50007) rects [t=141..163, 207..229, 867..889]',
-      passed: Boolean(clockRejected && toolbarRejected && ignoredRectRejected && validAccepted),
-      details: `ignoredRect(2303,141,2559,163)="${cleanUsername('SomeHeader', [2303, 141, 2559, 163])}", valid="Alice_1"`,
+        'Filters "YOU ARE VIEWING #", "VIEWING #", and "LURKERS #" from trending [l=2359,r=2559] User List(50008)',
+      passed: Boolean(clockRejected && viewingRejected && viewingShortRejected && lurkersRejected && validAccepted),
+      details: `VIEWING_4="${cleanUsername('YOU ARE VIEWING 4')}", LURKERS_18="${cleanUsername('LURKERS 18')}", valid="Alice_1"`,
     });
   } catch (err) {
     results.push({
-      name: 'test_ui_text_and_ignored_listitem_rects_filtered',
+      name: 'test_ui_text_and_viewing_lurkers_filtered',
       description:
-        'Filters clock strings, GIFTUsers2, and ignored User List ListItem(50007) rects [t=141..163, 207..229, 867..889]',
+        'Filters "YOU ARE VIEWING #", "VIEWING #", and "LURKERS #" from trending [l=2359,r=2559] User List(50008)',
+      passed: false,
+      details: String(err),
+    });
+  }
+
+  // Test 5: test_initial_user_list_and_join_quit_duration
+  try {
+    const store = new CamfrogStore(false);
+    store.seedInitialUsers(['Stonerwayne1000', 'Rosie'], '2026-10-08T01:00:00+00:00');
+    const initialOk = store.userProfile('Stonerwayne1000')?.active === 1;
+    store.recordPresence('Stonerwayne1000', 'quit', 'quit-key-1');
+    const afterQuit = store.userProfile('Stonerwayne1000');
+    const quitOk = afterQuit !== null && afterQuit.active === 0 && afterQuit.total_chat_seconds > 0;
+    results.push({
+      name: 'test_initial_user_list_and_join_quit_duration',
+      description: 'Seeds initial room roster from List(50008) [l=2359,t=141,r=2559,b=1160] and tracks duration via Join:/Quit:',
+      passed: Boolean(initialOk && quitOk),
+      details: `initialActive=${initialOk}, afterQuitActive=${afterQuit?.active}, accumulatedSeconds=${afterQuit?.total_chat_seconds}s`,
+    });
+  } catch (err) {
+    results.push({
+      name: 'test_initial_user_list_and_join_quit_duration',
+      description: 'Seeds initial room roster from List(50008) [l=2359,t=141,r=2559,b=1160] and tracks duration via Join:/Quit:',
+      passed: false,
+      details: String(err),
+    });
+  }
+
+  // Test 6: test_say_waits_for_free_mic_and_kaekae_toad_persistence
+  try {
+    const store = new CamfrogStore(false);
+    const bot = new CamfrogBotEngine(store, { dry_run: false });
+    bot.activeSpeaker = 'Rosie';
+    const busyReply = bot.handleMessage('Alice_1', '!say Wait for Rosie', '1:03 PM')[0] || '';
+    const queuedWhenBusy = bot.queuedBroadcasts.length === 1 && busyReply.includes('Cannot click Talk Button');
+    bot.activeSpeaker = null;
+    const freeReply = bot.handleMessage('Alice_1', '!say Hello Players Lounge', '1:04 PM')[0] || '';
+    const persistedOk = freeReply.includes(BOT_USERNAME) && freeReply.includes(`${MIC_CONFIRM_PERSIST_SECONDS}s`);
+    results.push({
+      name: 'test_say_waits_for_free_mic_and_kaekae_toad_persistence',
+      description: `Blocks Talk click while [1506,1174,1548,1190] is occupied, then 2-clicks + holds [1291,1169,1361,1195] and waits ${MIC_CONFIRM_PERSIST_SECONDS}s for "${BOT_USERNAME}"`,
+      passed: Boolean(queuedWhenBusy && persistedOk),
+      details: freeReply,
+    });
+  } catch (err) {
+    results.push({
+      name: 'test_say_waits_for_free_mic_and_kaekae_toad_persistence',
+      description: `Blocks Talk click while [1506,1174,1548,1190] is occupied, then 2-clicks + holds [1291,1169,1361,1195] and waits ${MIC_CONFIRM_PERSIST_SECONDS}s for "${BOT_USERNAME}"`,
       passed: false,
       details: String(err),
     });

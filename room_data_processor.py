@@ -3,6 +3,11 @@
 Process information from different Camfrog rooms using calibrated coordinates:
 - (1390, 50) -> Room List
 - (1550, 50) -> Players__Lounge
+- Chat Window Pane(50033)/Text(50020): [l=1281,t=170,r=2355,b=1160]
+- Chat Txt Field Pane(50033): [l=1396,t=1206,r=2497,b=1241]
+- User List(50008): [l=2359,t=141,r=2559,b=1160] (trending [l=2359,r=2559], max 100)
+- Talk Button(50000): [l=1291,t=1169,r=1361,b=1195]
+- Active Speaker Button(50000): [l=1506,t=1174,r=1548,b=1190]
 """
 
 import os
@@ -55,10 +60,13 @@ class RoomDataProcessor:
         print(f"  Command detected in {room_name}: {message}")
 
     def get_room_context(self, room_name):
+        users = self.ui_automation.get_user_list()
         return {
             "room": room_name,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "active_users": self.ui_automation.get_user_list(),
+            "active_users": users,
+            "user_count": len(users),
+            "active_speaker": self.ui_automation.get_active_speaker(),
             "message_count": len(self.ui_automation.get_chat_events()),
         }
 

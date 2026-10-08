@@ -1,14 +1,18 @@
 /**
- * Complete, fixed Python scripts for C:\Users\newbe\AIBot
- * Fixes:
- * 1. pywinauto `Application(backend="uia").connect()` empty-argument crash
- * 2. Dynamic room topic window title changes (uses Desktop(backend="uia").windows() + handle/process_id + calibrated coordinates)
- * 3. Calibrated BoundingRectangles for Chat Pane(50033), Talk Button(50000), User List(50008), and the 3 ignored ListItem(50007) rects
- * 4. Fixed tab coordinates (1390, 50) -> Room List and (1550, 50) -> Players__Lounge
- * 5. Continuous background audio transcription & SQLite storage
+ * Complete, synchronized Python scripts for C:\Users\newbe\AIBot
+ * Updated with all calibrated UIA coordinates and pipelines:
+ * 1. Chat Window: Pane(50033) & Text(50020) [l=1281,t=170,r=2355,b=1160] (IsKeyboardFocusable=True/False)
+ * 2. Chat Txt Field: Pane(50033) [l=1396,t=1206,r=2497,b=1241] (IsKeyboardFocusable=False)
+ * 3. User List: List(50008) [l=2359,t=141,r=2559,b=1160] trending [l=2359,r=2559], max 100 users,
+ *    filtering "YOU ARE VIEWING #" / "VIEWING #" and "LURKERS #", seeding initial roster on start
+ *    and tracking user chat duration via Join: and Quit: in the Chat Window
+ * 4. Talk Button: Button(50000) [l=1291,t=1169,r=1361,b=1195] (2 quick clicks + hold to transmit, release when done)
+ * 5. Active Mic Speaker: Button(50000) [l=1506,t=1174,r=1548,b=1190] (watched continuously, connected to
+ *    transcription, blocks Talk click when occupied, and requires "KaeKae_Toad" to persist 1.3s before broadcast)
+ * 6. Top Gifters / Outer Text: Text(50020) [l=1281,t=71,r=2559,b=1160] (fallback text container)
  */
 
-export const FIXED_CONFIG_PY = `"""Runtime configuration for the UI-Automation Camfrog bot."""
+export const FIXED_CONFIG_PY = `"""Runtime configuration for the UI-Automation Camfrog bot with VB-Cable TTS."""
 
 from pathlib import Path
 
@@ -25,7 +29,6 @@ TESSERACT_ENABLED = False
 IMAGE_CAPTURE_ENABLED = False
 
 # Window title can change dynamically when room topic changes.
-# We match known room names, Camfrog classes, or calibrated UIA rectangles.
 CAMFROG_WINDOW_TITLE_RE = r"(?i).*(Players__Lounge|Drama_Central|Camfrog|Video Chat Room).*"
 POLL_INTERVAL_SECONDS = 0.75
 UIA_CACHE_SECONDS = 0.30
@@ -44,12 +47,33 @@ ROOM_TAB_POSITIONS = {
     "Drama_Central": [1633, 37, 1793, 71],
 }
 
-# Exact calibrated BoundingRectangles [left, top, right, bottom]
-CHAT_WINDOW_RECT = (1281, 170, 2299, 1160)      # ControlType Pane(50033)
-TALK_BUTTON_RECT = (1291, 1169, 1361, 1195)     # ControlType Button(50000)
-USER_LIST_RECT = (2303, 141, 2559, 1160)        # ControlType List(50008), items at r=2559
+# Exact calibrated BoundingRectangles [left, top, right, bottom] for newer Camfrog UIA
+# 1. Chat Window (to pull users' text and catch moderation events)
+CHAT_WINDOW_RECT = (1281, 170, 2355, 1160)      # ControlType Pane(50033), IsKeyboardFocusable=True
+CHAT_TEXT_RECT = (1281, 170, 2355, 1160)        # ControlType Text(50020), IsKeyboardFocusable=False
 
-# Specific ListItem(50007) rectangles inside User List to ignore (headers/separators)
+# 2. Chat Txt Field (for the bot to input text to send communications to the chatroom)
+CHAT_INPUT_RECT = (1396, 1206, 2497, 1241)      # ControlType Pane(50033), IsKeyboardFocusable=False
+
+# 3. User List (watched on startup for initial roster, then Join:/Quit: in Chat Window tracks duration)
+USER_LIST_RECT = (2359, 141, 2559, 1160)        # ControlType List(50008), IsKeyboardFocusable=True
+USER_LIST_ITEM_X_SPAN = (2359, 2559)            # Trending [l=2359, r=2559] for list items up/down the list
+MAX_ROOM_USERS = 100                            # Never more than 100 people in a chatroom
+
+# 4. Talk Button (2 quick clicks + hold to transmit audio, then release button to finish broadcast)
+TALK_BUTTON_RECT = (1291, 1169, 1361, 1195)     # ControlType Button(50000), IsKeyboardFocusable=True
+TALK_DOUBLE_CLICK_DELAY = 0.06
+
+# 5. Active Speaker on Microphone (flows current speaker name; disappears/erases when mic is free)
+# Broadcasting must not start until BOT_USERNAME ("KaeKae_Toad") persists here for 1.3 seconds.
+ACTIVE_SPEAKER_RECT = (1506, 1174, 1548, 1190)  # ControlType Button(50000), IsKeyboardFocusable=True
+BOT_USERNAME = "KaeKae_Toad"
+MIC_CONFIRM_PERSIST_SECONDS = 1.3
+
+# 6. Top Gifters / Combined Text Overlay (above Chat visually; ignored unless fallback text is needed)
+TOP_GIFTERS_RECT = (1281, 71, 2559, 1160)       # ControlType Text(50020), IsKeyboardFocusable=False
+
+# Legacy ignored rects kept for backwards compatibility alongside dynamic VIEWING # / LURKERS # filtering
 IGNORED_USER_LIST_RECTS = {
     (2303, 141, 2559, 163),
     (2303, 207, 2559, 229),
@@ -64,7 +88,7 @@ VB_CABLE_TTS_ENABLED = True
 BOT_SETTINGS = {
     "chat_mode": False,
     "silent_mode": False,
-    "transcription_mode": True,  # Continuous audio transcription storage enabled
+    "transcription_mode": True,
     "running": True,
 }
 
@@ -79,47 +103,103 @@ TRIGGER_NAMES = (
 )
 `;
 
-export const FIXED_UI_AUTOMATION_PY = `"""Camfrog UI Automation adapter with Desktop window enumeration and calibrated rectangles."""
+export const FIXED_UI_AUTOMATION_PY = `"""Camfrog UI Automation adapter with Desktop window enumeration, calibrated rectangles, and VB-Cable TTS."""
 
 from __future__ import annotations
 
 import re
+import subprocess
+import tempfile
 import time
+import wave
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Iterable
 
 from config import (
+    ACTIVE_SPEAKER_RECT,
+    BOT_USERNAME,
     CAMFROG_WINDOW_TITLE_RE,
+    CHAT_INPUT_RECT,
+    CHAT_TEXT_RECT,
     CHAT_WINDOW_RECT,
     IGNORED_USER_LIST_RECTS,
+    MAX_ROOM_USERS,
+    MIC_CONFIRM_PERSIST_SECONDS,
     ROOM_TAB_CLICK_POINTS,
     ROOM_TAB_POSITIONS,
     TALK_BUTTON_RECT,
+    TALK_DOUBLE_CLICK_DELAY,
+    TOP_GIFTERS_RECT,
     UIA_CACHE_SECONDS,
+    USER_LIST_ITEM_X_SPAN,
     USER_LIST_RECT,
+    VB_CABLE_PLAYBACK_DEVICE,
+    VB_CABLE_TTS_ENABLED,
 )
 
 try:
     from pywinauto import Application, Desktop
+    from pywinauto.keyboard import send_keys as uia_send_keys
     from pywinauto.mouse import click as uia_click, press as uia_press, release as uia_release
 except ImportError:
     Application = None
     Desktop = None
+    uia_send_keys = None
     uia_click = None
     uia_press = None
     uia_release = None
 
 
 _CLOCK_RE = re.compile(r"^\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)?$", re.I)
-_USERNAME_RE = re.compile(r"^[A-Za-z0-9_$-]{2,32}$")
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9_$.\\-\\[\\]@~^]{2,32}$")
 _PANEL_LABELS = {
-    "talk", "push-to-talk", "camfrog", "users", "user", "members", "lurkers",
-    "youareviewing", "search", "gifts", "giftusers", "yourvideo", "room", "chat",
+    "talk", "push-to-talk", "pushtotalk", "camfrog", "users", "user", "members", "lurkers",
+    "lurker", "youareviewing", "viewing", "search", "gifts", "giftusers", "giftusers2",
+    "topgifters", "yourvideo", "room", "chat", "roomlist", "players__lounge", "drama_central",
 }
+
+_USER_LIST_HEADER_RE = re.compile(
+    r"^\\s*(?:"
+    r"you\\s*are\\s*viewing(?:\\s*[:()\\-]*\\s*\\d+\\s*\\)?)?|"
+    r"youareviewing\\d*|"
+    r"viewing(?:\\s*[:()\\-]*\\s*\\d+\\s*\\)?)?|"
+    r"lurkers?(?:\\s*[:()\\-]*\\s*\\d+\\s*\\)?)?|"
+    r"users?(?:\\s*[:()\\-]*\\s*\\d+\\s*\\)?)?|"
+    r"members?(?:\\s*[:()\\-]*\\s*\\d+\\s*\\)?)?|"
+    r"friends?(?:\\s*[:()\\-]*\\s*\\d+\\s*\\)?)?|"
+    r"top\\s*gifters?(?:\\s*[:()\\-]*\\s*\\d+\\s*\\)?)?|"
+    r"gift\\s*users?\\s*\\d*"
+    r")\\s*$",
+    re.IGNORECASE,
+)
+
+_MOD_LINE_RE = re.compile(
+    r"^\\s*(?:(?P<actor>[A-Za-z0-9_$.\\-\\[\\]@~^]{2,32})\\s+(?:was\\s+)?"
+    r"(?P<action>unpunished|unblocked|unbanned|punished|blocked|banned|kicked)\\s+"
+    r"(?P<target>[A-Za-z0-9_$.\\-\\[\\]@~^]{2,32})(?:\\s+microphone)?|"
+    r"(?P<target2>[A-Za-z0-9_$.\\-\\[\\]@~^]{2,32})\\s+was\\s+"
+    r"(?P<action2>unpunished|unblocked|unbanned|punished|blocked|banned|kicked)\\s+by\\s+"
+    r"(?P<actor2>[A-Za-z0-9_$.\\-\\[\\]@~^]{2,32}))\\s*[.!]?\\s*$",
+    re.IGNORECASE,
+)
+
+_INLINE_CHAT_RE = re.compile(
+    r"^\\s*(?:\\[?(?P<ts1>\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)?)\\]?\\s+)?"
+    r"(?P<user>[A-Za-z0-9_$.\\-\\[\\]@~^]{2,32})"
+    r"(?:\\s+\\(?\\[?(?P<ts2>\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)?)\\]?\\)?)?"
+    r"(?:\\s+says)?\\s*:\\s*(?P<body>.+?)\\s*$",
+    re.IGNORECASE,
+)
+
+_INLINE_PRESENCE_RE = re.compile(
+    r"^\\s*(?:(?P<kw>join|quit|left)\\s*:\\s*(?P<user1>[A-Za-z0-9_$.\\-\\[\\]@~^]{2,32})|"
+    r"(?P<user2>[A-Za-z0-9_$.\\-\\[\\]@~^]{2,32})\\s+has\\s+(?P<verb>joined|left|quit)(?:\\s+the\\s+room)?)\\s*[.!]?\\s*$",
+    re.IGNORECASE,
+)
 
 
 def is_ignored_listitem_rect(rect_tuple: tuple[int, int, int, int] | None) -> bool:
-    """Return True if the rectangle matches one of the 3 ignored ListItem(50007) slots."""
     if rect_tuple is None:
         return False
     l, t, r, b = rect_tuple
@@ -129,18 +209,47 @@ def is_ignored_listitem_rect(rect_tuple: tuple[int, int, int, int] | None) -> bo
     return False
 
 
+def is_user_list_header(value: str) -> bool:
+    """Return True for 'YOU ARE VIEWING #', 'VIEWING #', 'LURKERS #', or similar section headers."""
+    raw = str(value or "").strip()
+    if not raw:
+        return True
+    if _USER_LIST_HEADER_RE.fullmatch(raw):
+        return True
+    lower = raw.lower()
+    if "you are viewing" in lower or "youareviewing" in lower:
+        return True
+    if re.search(r"\\b(?:viewing|lurkers?)\\s*[:()\\-]*\\s*\\d+", lower):
+        return True
+    compact = re.sub(r"[^a-z0-9]", "", lower)
+    if (
+        compact.startswith("youareviewing")
+        or compact.startswith("viewing")
+        or compact.startswith("lurkers")
+        or compact.startswith("giftusers")
+        or compact.startswith("topgifters")
+    ):
+        return True
+    return False
+
+
 def clean_username(value: str, rect_tuple: tuple[int, int, int, int] | None = None) -> str:
-    """Return a valid Camfrog username, or an empty string for UI chrome / ignored rects."""
+    """Return a valid Camfrog username, or an empty string for UI chrome, VIEWING #, LURKERS #, or ignored rects."""
     if is_ignored_listitem_rect(rect_tuple):
         return ""
     raw = str(value or "").strip()
+    if not raw:
+        return ""
     if _CLOCK_RE.fullmatch(raw) or re.fullmatch(r"\\d{3,4}(?:AM|PM)", raw, re.I):
         return ""
-    name = re.sub(r"[^A-Za-z0-9_$-]", "", raw)[:32]
-    lower = name.lower()
-    if lower == "giftusers2":
+    if is_user_list_header(raw):
         return ""
-    return name if _USERNAME_RE.fullmatch(name) and lower not in _PANEL_LABELS else ""
+    trimmed = raw.lstrip("@").strip()
+    name = re.sub(r"[^A-Za-z0-9_$.\\-\\[\\]~^]", "", trimmed)[:32]
+    lower = name.lower()
+    if not name or lower in _PANEL_LABELS or is_user_list_header(name):
+        return ""
+    return name if _USERNAME_RE.fullmatch(name) else ""
 
 
 @dataclass(frozen=True)
@@ -180,14 +289,11 @@ class CamfrogUIAutomation:
         self.last_error = ""
 
     def connect_to_camfrog(self) -> bool:
-        """Attach to the Camfrog room window using Desktop(backend='uia').windows()."""
         if Application is None or Desktop is None:
             self.last_error = "pywinauto is not installed; run: pip install pywinauto"
             return False
 
         try:
-            # Enumerate all top-level UIA windows safely via Desktop(backend="uia")
-            # (Fixes: Application().connect() with no arguments raising ValueError)
             all_windows = Desktop(backend="uia").windows()
             candidates = []
 
@@ -199,7 +305,6 @@ class CamfrogUIAutomation:
                     rect = win.rectangle()
                     if rect.width() < 400 or rect.height() < 300:
                         continue
-                    # Match by title regex, class name, or right-edge span covering calibrated coordinates
                     if (
                         title_pattern.search(title)
                         or "camfrog" in title.lower()
@@ -210,7 +315,6 @@ class CamfrogUIAutomation:
                 except Exception:
                     continue
 
-            # If no obvious title/bounds matched, inspect visible large windows for CButtonTS or calibrated panes
             if not candidates:
                 for win in all_windows:
                     try:
@@ -230,7 +334,6 @@ class CamfrogUIAutomation:
                     score = 0
                     if title_pattern.search(title):
                         score += 500
-                    # Check if window encompasses our calibrated Chat/UserList coordinates
                     if rect.left <= 1281 and rect.right >= 2559:
                         score += 1000
                     cbutton_count = len(win.descendants(class_name="CButtonTS"))
@@ -247,7 +350,6 @@ class CamfrogUIAutomation:
                 self.last_error = "Could not find an open Camfrog room window on the desktop."
                 return False
 
-            # Connect Application(backend="uia") using the winning window's integer handle
             self.app = Application(backend="uia").connect(handle=best_win.handle)
             self.window = self.app.window(handle=best_win.handle)
             self._nodes = []
@@ -267,13 +369,43 @@ class CamfrogUIAutomation:
         except Exception:
             return False
 
+    @staticmethod
+    def _extract_control_text(control: Any, info: Any) -> str:
+        parts: list[str] = []
+        for getter in (
+            lambda: info.name,
+            lambda: control.window_text(),
+            lambda: getattr(control.iface_value, "CurrentValue", ""),
+            lambda: control.iface_text.DocumentRange.GetText(-1),
+            lambda: (control.legacy_properties() or {}).get("Value", ""),
+            lambda: (control.legacy_properties() or {}).get("Name", ""),
+        ):
+            try:
+                val = getter()
+                if val and isinstance(val, str) and val.strip():
+                    cleaned = val.strip()
+                    if cleaned not in parts:
+                        parts.append(cleaned)
+            except Exception:
+                continue
+        if not parts:
+            try:
+                texts = [t.strip() for t in control.texts() if isinstance(t, str) and t.strip()]
+                if texts:
+                    return "\\n".join(texts)
+            except Exception:
+                pass
+            return ""
+        return max(parts, key=len)
+
     def _node_from_control(self, control: Any) -> UIANode | None:
         try:
             info = control.element_info
             rect = control.rectangle()
+            text = self._extract_control_text(control, info)
             return UIANode(
                 control_type=(info.control_type or ""),
-                name=(info.name or control.window_text() or "").strip(),
+                name=text,
                 class_name=(info.class_name or ""),
                 left=int(rect.left),
                 top=int(rect.top),
@@ -314,15 +446,19 @@ class CamfrogUIAutomation:
 
     def layout_locations(self) -> dict[str, tuple[int, int, int, int] | None]:
         bounds = self._window_rect()
-        nodes = self.nodes()
+        nodes = self.nodes(refresh=True)
         talk = self._find_talk(nodes)
-        edit = self._find_chat_input(nodes)
+        chat_input = self._find_chat_input(nodes)
+        speaker_node = self._find_active_speaker_node(nodes)
         return {
             "window": bounds,
             "chat_feed": CHAT_WINDOW_RECT,
+            "chat_text": CHAT_TEXT_RECT,
+            "chat_input": self._rect(chat_input) or CHAT_INPUT_RECT,
             "user_list": USER_LIST_RECT,
-            "chat_input": self._rect(edit),
             "talk": self._rect(talk) or TALK_BUTTON_RECT,
+            "active_speaker": self._rect(speaker_node) or ACTIVE_SPEAKER_RECT,
+            "top_gifters": TOP_GIFTERS_RECT,
         }
 
     @staticmethod
@@ -334,96 +470,209 @@ class CamfrogUIAutomation:
         tl, tt, tr, tb = TALK_BUTTON_RECT
         for node in nodes:
             if node.control_type == "Button":
-                if abs(node.left - tl) <= 15 and abs(node.top - tt) <= 15:
+                if abs(node.left - tl) <= 15 and abs(node.top - tt) <= 15 and abs(node.right - tr) <= 15:
                     return node
                 if node.name.lower().strip() in {"talk", "push-to-talk", "push to talk"}:
                     return node
         return None
 
     def _find_chat_input(self, nodes: Iterable[UIANode]) -> UIANode | None:
-        bounds = self._window_rect()
-        if bounds is None:
-            return None
-        _, top, _, bottom = bounds
-        edits = [node for node in nodes if node.control_type == "Edit" and node.top >= top + (bottom - top) * 0.55]
-        return max(edits, key=lambda node: node.width * node.height, default=None)
+        il, it, ir, ib = CHAT_INPUT_RECT
+        node_list = list(nodes)
+        calibrated = [
+            node for node in node_list
+            if node.control_type in {"Pane", "Edit", "Document", "Custom", "Text"}
+            and abs(node.left - il) <= 25
+            and abs(node.top - it) <= 25
+            and abs(node.right - ir) <= 35
+            and abs(node.bottom - ib) <= 25
+        ]
+        if calibrated:
+            return min(calibrated, key=lambda n: abs(n.left - il) + abs(n.top - it))
 
-    def get_active_speaker(self) -> str | None:
-        """Read the active speaker username immediately to the right of Talk Button [1291,1169,1361,1195]."""
-        nodes = self.nodes()
-        talk = self._find_talk(nodes)
-        talk_top = talk.top if talk else TALK_BUTTON_RECT[1]
-        talk_right = talk.right if talk else TALK_BUTTON_RECT[2]
-        candidates = [
-            node for node in nodes
+        bounds = self._window_rect()
+        if bounds is not None:
+            _, top, _, bottom = bounds
+            edits = [node for node in node_list if node.control_type == "Edit" and node.top >= top + (bottom - top) * 0.55]
+            if edits:
+                return max(edits, key=lambda node: node.width * node.height)
+        return None
+
+    @staticmethod
+    def _find_active_speaker_node(nodes: Iterable[UIANode]) -> UIANode | None:
+        sl, st, sr, sb = ACTIVE_SPEAKER_RECT
+        node_list = list(nodes)
+        primary = [
+            node for node in node_list
+            if node.control_type in {"Button", "Text", "Custom", "Pane"}
+            and abs(node.left - sl) <= 35
+            and abs(node.top - st) <= 20
+            and abs(node.bottom - sb) <= 20
+            and clean_username(node.name, node.rect_tuple)
+        ]
+        if primary:
+            return min(primary, key=lambda n: abs(n.left - sl) + abs(n.top - st))
+
+        tl, tt, tr, tb = TALK_BUTTON_RECT
+        fallback = [
+            node for node in node_list
             if (node.class_name == "CButtonTS" or node.control_type in {"Button", "Text", "Custom"})
             and clean_username(node.name, node.rect_tuple)
-            and abs(node.top - talk_top) <= 35
-            and 0 <= node.left - talk_right <= 300
+            and abs(node.top - st) <= 30
+            and 0 <= node.left - tr <= 320
         ]
-        return min(candidates, key=lambda node: node.left).name if candidates else None
+        return min(fallback, key=lambda n: abs(n.left - sl)) if fallback else None
 
-    def get_user_list(self) -> list[str]:
-        """Extract usernames from User List [l=2303,t=141,r=2559,b=1160] while ignoring the 3 header ListItems."""
+    def get_active_speaker(self, refresh: bool = False) -> str | None:
+        node = self._find_active_speaker_node(self.nodes(refresh=refresh))
+        if node is None:
+            return None
+        cleaned = clean_username(node.name, node.rect_tuple)
+        return cleaned or None
+
+    def is_mic_free(self, refresh: bool = True) -> bool:
+        return self.get_active_speaker(refresh=refresh) is None
+
+    def get_user_list(self, refresh: bool = False) -> list[str]:
         ul_left, ul_top, ul_right, ul_bottom = USER_LIST_RECT
-        users: list[str] = []
-        for node in self.nodes():
+        span_l, span_r = USER_LIST_ITEM_X_SPAN
+
+        candidates: list[UIANode] = []
+        for node in self.nodes(refresh=refresh):
             if is_ignored_listitem_rect(node.rect_tuple):
                 continue
-            # Match calibrated User List (r=2559 or inside [2303..2559])
-            in_calibrated_list = (
-                abs(node.right - ul_right) <= 10
-                or (node.left >= ul_left - 20 and node.top >= ul_top - 10 and node.bottom <= ul_bottom + 10)
+            if node.control_type == "List" and node.height > 200:
+                continue
+            matches_x_trend = (
+                (abs(node.left - span_l) <= 15 and abs(node.right - span_r) <= 15)
+                or (node.left >= ul_left - 15 and node.right <= ul_right + 15 and abs(node.right - span_r) <= 15)
             )
-            if not in_calibrated_list:
+            in_y_bounds = (node.top >= ul_top - 15) and (node.bottom <= ul_bottom + 15)
+            if not (matches_x_trend and in_y_bounds):
                 continue
-            if node.control_type not in {"ListItem", "Text", "Hyperlink"}:
+            if node.control_type not in {"ListItem", "Text", "Hyperlink", "Custom", "Pane", "Button"}:
                 continue
-            user = clean_username(node.name, node.rect_tuple)
-            if user and user.lower() not in {item.lower() for item in users}:
-                users.append(user)
+            candidates.append(node)
+
+        candidates.sort(key=lambda n: (n.top, n.left))
+
+        users: list[str] = []
+        seen_lower: set[str] = set()
+        for node in candidates:
+            for line in str(node.name or "").splitlines():
+                raw_line = line.strip()
+                if not raw_line or is_user_list_header(raw_line):
+                    continue
+                user = clean_username(raw_line, node.rect_tuple)
+                if user and user.lower() not in seen_lower:
+                    seen_lower.add(user.lower())
+                    users.append(user)
+                    if len(users) >= MAX_ROOM_USERS:
+                        return users
         return users
 
-    def get_user_count(self) -> int:
-        return len(self.get_user_list())
+    def get_user_count(self, refresh: bool = False) -> int:
+        return len(self.get_user_list(refresh=refresh))
 
-    def get_chat_events(self, limit: int = 200) -> list[dict[str, str]]:
-        """Parse chat events inside Chat Window Pane(50033) [l=1281,t=170,r=2299,b=1160]."""
-        cl, ct, cr, cb = CHAT_WINDOW_RECT
-        chat_nodes = [
-            node for node in self.nodes()
-            if node.name and not is_ignored_listitem_rect(node.rect_tuple)
-            and (node.right <= cr + 40)
-        ]
-        flat = [(node.control_type, node.name) for node in chat_nodes]
+    @staticmethod
+    def _parse_text_tokens_into_events(tokens: list[tuple[str, str]]) -> list[dict[str, str]]:
+        flat: list[tuple[str, str]] = []
+        for ctrl_type, raw_text in tokens:
+            lines = [ln.strip() for ln in str(raw_text or "").splitlines() if ln.strip()]
+            for ln in lines:
+                flat.append((ctrl_type, ln))
+
         events: list[dict[str, str]] = []
         for index, (control_type, name) in enumerate(flat):
             lowered = name.lower().strip()
-            if lowered in {"join:", "quit:"}:
+            if is_user_list_header(name):
+                continue
+
+            if lowered in {"join:", "quit:", "left:"}:
                 action = "join" if lowered == "join:" else "quit"
                 user = clean_username(flat[index + 1][1]) if index + 1 < len(flat) else ""
                 if user:
                     events.append({"kind": "presence", "action": action, "user": user, "text": "", "timestamp": ""})
                 continue
+
+            pres_match = _INLINE_PRESENCE_RE.match(name)
+            if pres_match:
+                if pres_match.group("kw"):
+                    action = "join" if pres_match.group("kw").lower() == "join" else "quit"
+                    user = clean_username(pres_match.group("user1"))
+                else:
+                    action = "join" if pres_match.group("verb").lower() == "joined" else "quit"
+                    user = clean_username(pres_match.group("user2"))
+                if user:
+                    events.append({"kind": "presence", "action": action, "user": user, "text": "", "timestamp": ""})
+                continue
+
+            mod_match = _MOD_LINE_RE.match(name)
+            if mod_match:
+                actor = clean_username(mod_match.group("actor") or mod_match.group("actor2") or "")
+                target = clean_username(mod_match.group("target") or mod_match.group("target2") or "")
+                if actor and target:
+                    events.append({"kind": "message", "user": actor, "text": name.strip(), "timestamp": ""})
+                    continue
+
             if _CLOCK_RE.fullmatch(name.strip()) and index > 0:
                 user = clean_username(flat[index - 1][1])
                 if not user:
                     continue
                 body = ""
                 for _, candidate in flat[index + 1:index + 4]:
-                    if candidate and not _CLOCK_RE.fullmatch(candidate.strip()) and candidate.lower().strip() not in {"join:", "quit:"}:
-                        body = candidate.strip()
+                    cand_strip = candidate.strip()
+                    if (
+                        cand_strip
+                        and not _CLOCK_RE.fullmatch(cand_strip)
+                        and cand_strip.lower() not in {"join:", "quit:", "left:"}
+                    ):
+                        body = cand_strip
                         break
                 if body:
                     events.append({"kind": "message", "user": user, "text": body, "timestamp": name.strip()})
-
-        for _, name in flat:
-            if ":" not in name:
                 continue
-            user_raw, body = name.split(":", 1)
-            user = clean_username(user_raw.replace(" says", ""))
-            if user and body.strip():
-                events.append({"kind": "message", "user": user, "text": body.strip(), "timestamp": ""})
+
+            inline_match = _INLINE_CHAT_RE.match(name)
+            if inline_match:
+                user = clean_username(inline_match.group("user"))
+                body = (inline_match.group("body") or "").strip()
+                ts = (inline_match.group("ts1") or inline_match.group("ts2") or "").strip()
+                if user and body:
+                    events.append({"kind": "message", "user": user, "text": body, "timestamp": ts})
+
+        return events
+
+    def get_chat_events(self, limit: int = 200) -> list[dict[str, str]]:
+        cl, ct, cr, cb = CHAT_WINDOW_RECT
+        ul_left = USER_LIST_RECT[0]
+
+        all_nodes = self.nodes()
+        primary_chat_nodes = [
+            node for node in all_nodes
+            if node.name
+            and not is_ignored_listitem_rect(node.rect_tuple)
+            and node.left >= cl - 20
+            and node.right <= min(cr + 15, ul_left)
+            and node.top >= ct - 15
+            and node.bottom <= cb + 15
+        ]
+
+        primary_chat_nodes.sort(key=lambda n: (n.top, n.left))
+        events = self._parse_text_tokens_into_events([(n.control_type, n.name) for n in primary_chat_nodes])
+
+        if not events:
+            tl, tt, tr, tb = TOP_GIFTERS_RECT
+            fallback_nodes = [
+                node for node in all_nodes
+                if node.name
+                and node.control_type in {"Text", "Pane", "Document"}
+                and abs(node.left - tl) <= 20
+                and abs(node.top - tt) <= 20
+                and abs(node.right - tr) <= 20
+                and abs(node.bottom - tb) <= 20
+            ]
+            events = self._parse_text_tokens_into_events([(n.control_type, n.name) for n in fallback_nodes])
 
         unique: list[dict[str, str]] = []
         seen: set[tuple[str, str, str, str]] = set()
@@ -437,33 +686,87 @@ class CamfrogUIAutomation:
     def send_chat_message(self, message: str, dry_run: bool = False) -> bool:
         if dry_run:
             return True
-        node = self._find_chat_input(self.nodes(refresh=True))
-        if node is None or node.control is None:
-            self.last_error = "Camfrog chat input was not exposed through UI Automation."
+        cleaned = str(message or "").strip()
+        if not cleaned:
             return False
+
+        node = self._find_chat_input(self.nodes(refresh=True))
+        il, it, ir, ib = self._rect(node) or CHAT_INPUT_RECT
+        cx, cy = (il + ir) // 2, (it + ib) // 2  # (1946, 1223)
+
         try:
-            node.control.set_focus()
-            try:
-                node.control.set_edit_text(message)
-            except Exception:
-                node.control.type_keys(message, with_spaces=True, set_foreground=False)
-            node.control.type_keys("{ENTER}", set_foreground=False)
-            return True
+            if uia_click is not None:
+                uia_click(coords=(cx, cy))
+                time.sleep(0.08)
+
+            if node is not None and node.control is not None:
+                try:
+                    node.control.set_edit_text(cleaned)
+                    node.control.type_keys("{ENTER}", set_foreground=False)
+                    return True
+                except Exception:
+                    try:
+                        node.control.type_keys(cleaned, with_spaces=True, set_foreground=False)
+                        node.control.type_keys("{ENTER}", set_foreground=False)
+                        return True
+                    except Exception:
+                        pass
+
+            if uia_send_keys is not None:
+                escaped = re.sub(r"([+^%~(){}])", r"{\\1}", cleaned)
+                uia_send_keys(escaped, with_spaces=True, pause=0.01)
+                uia_send_keys("{ENTER}", pause=0.02)
+                return True
+
+            self.last_error = "Camfrog chat input could not receive keystrokes."
+            return False
         except Exception as error:
             self.last_error = f"Camfrog UIA chat send failed: {error}"
             return False
 
-    def broadcast_tts_via_vbcable(self, text: str, dry_run: bool = False) -> bool:
-        """Synthesize speech to WAV, route to VB-Cable ('CABLE Input'), and hold Talk Button [1291,1169,1361,1195]."""
-        import subprocess, tempfile, wave
-        from pathlib import Path
-        from config import VB_CABLE_PLAYBACK_DEVICE, VB_CABLE_TTS_ENABLED
+    def _wait_until_mic_free(self, timeout_seconds: float = 12.0) -> bool:
+        deadline = time.monotonic() + max(0.1, timeout_seconds)
+        while time.monotonic() < deadline:
+            speaker = self.get_active_speaker(refresh=True)
+            if speaker is None or speaker.casefold() == BOT_USERNAME.casefold():
+                return True
+            time.sleep(0.12)
+        speaker = self.get_active_speaker(refresh=True)
+        return speaker is None or speaker.casefold() == BOT_USERNAME.casefold()
 
+    def _wait_for_bot_mic_persistence(
+        self,
+        bot_username: str = BOT_USERNAME,
+        persist_seconds: float = MIC_CONFIRM_PERSIST_SECONDS,
+        timeout_seconds: float = 6.0,
+    ) -> bool:
+        deadline = time.monotonic() + max(persist_seconds + 0.5, timeout_seconds)
+        seen_since: float | None = None
+        target_lower = bot_username.casefold()
+
+        while time.monotonic() < deadline:
+            speaker = self.get_active_speaker(refresh=True)
+            if speaker and speaker.casefold() == target_lower:
+                if seen_since is None:
+                    seen_since = time.monotonic()
+                elif time.monotonic() - seen_since >= persist_seconds:
+                    return True
+            else:
+                seen_since = None
+            time.sleep(0.05)
+        return False
+
+    def broadcast_tts_via_vbcable(self, text: str, dry_run: bool = False) -> bool:
         cleaned_text = str(text or "").strip()
         if not cleaned_text or not VB_CABLE_TTS_ENABLED:
             return False
         if dry_run:
             return True
+
+        if not self._wait_until_mic_free(timeout_seconds=12.0):
+            active = self.get_active_speaker(refresh=True)
+            self.last_error = f"Cannot click Talk Button: '{active}' is currently on the microphone at [1506,1174,1548,1190]."
+            return False
 
         l, t, r, b = TALK_BUTTON_RECT
         cx, cy = (l + r) // 2, (t + b) // 2  # (1326, 1182)
@@ -485,36 +788,77 @@ class CamfrogUIAutomation:
             duration = 2.0
             try:
                 with wave.open(str(wav_path), "rb") as wf:
-                    if wf.getframerate() > 0:
-                        duration = max(0.5, wf.getnframes() / float(wf.getframerate()))
+                    frames = wf.getnframes()
+                    rate = wf.getframerate()
+                    if rate > 0:
+                        duration = max(0.5, frames / float(rate))
             except Exception:
                 pass
 
             try:
+                if uia_click is not None:
+                    uia_click(coords=(cx, cy))
+                    time.sleep(TALK_DOUBLE_CLICK_DELAY)
+                    uia_click(coords=(cx, cy))
+                    time.sleep(TALK_DOUBLE_CLICK_DELAY)
                 if uia_press is not None:
                     uia_press(coords=(cx, cy))
-                time.sleep(0.15)
-                try:
-                    import sounddevice as sd, numpy as np
-                    target_idx = next(
-                        (i for i, d in enumerate(sd.query_devices())
-                         if VB_CABLE_PLAYBACK_DEVICE.lower() in str(d.get("name", "")).lower()
-                         and d.get("max_output_channels", 0) > 0),
-                        None,
+
+                if not self._wait_for_bot_mic_persistence(
+                    bot_username=BOT_USERNAME,
+                    persist_seconds=MIC_CONFIRM_PERSIST_SECONDS,
+                    timeout_seconds=6.0,
+                ):
+                    self.last_error = (
+                        f"'{BOT_USERNAME}' did not persist for {MIC_CONFIRM_PERSIST_SECONDS}s "
+                        f"at Active Speaker [1506,1174,1548,1190]; broadcast aborted."
                     )
-                    with wave.open(str(wav_path), "rb") as wf:
-                        data = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16)
-                        if wf.getnchannels() > 1:
-                            data = data.reshape(-1, wf.getnchannels())
-                        sd.play(data, samplerate=wf.getframerate(), device=target_idx)
-                        sd.wait()
-                except Exception:
-                    import winsound
-                    winsound.PlaySound(str(wav_path), winsound.SND_FILENAME)
+                    return False
+
+                played = self._play_wav_to_vbcable(wav_path, duration)
+                if not played:
+                    time.sleep(duration)
                 return True
+            except Exception as error:
+                self.last_error = f"VB-Cable TTS broadcast failed: {error}"
+                return False
             finally:
                 if uia_release is not None:
-                    uia_release(coords=(cx, cy))
+                    try:
+                        uia_release(coords=(cx, cy))
+                    except Exception:
+                        pass
+
+    def _play_wav_to_vbcable(self, wav_path: Path, duration: float) -> bool:
+        try:
+            import numpy as np
+            import sounddevice as sd
+            import wave as _wave
+
+            devices = sd.query_devices()
+            target_idx = None
+            for idx, dev in enumerate(devices):
+                if VB_CABLE_PLAYBACK_DEVICE.lower() in str(dev.get("name", "")).lower() and dev.get("max_output_channels", 0) > 0:
+                    target_idx = idx
+                    break
+
+            with _wave.open(str(wav_path), "rb") as wf:
+                rate = wf.getframerate()
+                channels = wf.getnchannels()
+                raw = wf.readframes(wf.getnframes())
+                data = np.frombuffer(raw, dtype=np.int16)
+                if channels > 1:
+                    data = data.reshape(-1, channels)
+                sd.play(data, samplerate=rate, device=target_idx)
+                sd.wait()
+                return True
+        except Exception:
+            try:
+                import winsound
+                winsound.PlaySound(str(wav_path), winsound.SND_FILENAME)
+                return True
+            except Exception:
+                return False
 
     def find_room_by_position(self, x: int, y: int) -> str | None:
         for room_name, (left, top, right, bottom) in ROOM_TAB_POSITIONS.items():
@@ -534,16 +878,18 @@ class CamfrogUIAutomation:
             pass
         return "Players__Lounge"
 
-    def switch_to_room(self, room_name: str) -> bool:
-        """Click the fixed tab coordinate (1390, 50) or (1550, 50)."""
-        coords = ROOM_TAB_CLICK_POINTS.get(room_name)
-        if not coords or uia_click is None:
+    def switch_to_room_by_position(self, x: int, y: int) -> bool:
+        room_name = self.find_room_by_position(x, y)
+        if not room_name:
+            self.last_error = f"No room found at position ({x}, {y})"
             return False
-        try:
-            uia_click(coords=coords)
-            time.sleep(0.4)
-            return True
-        except Exception as error:
-            self.last_error = f"Tab click failed: {error}"
-            return False
+        if uia_click is not None:
+            try:
+                uia_click(coords=(x, y))
+                time.sleep(0.4)
+                return True
+            except Exception as error:
+                self.last_error = f"Failed to click tab at ({x}, {y}): {error}"
+                return False
+        return True
 `;

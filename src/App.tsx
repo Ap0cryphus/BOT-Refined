@@ -4,7 +4,10 @@ import {
   ROOM_TAB_POSITIONS,
   ROOM_TAB_CLICK_POINTS,
   CALIBRATED_UIA_RECTS,
-  IGNORED_USER_LIST_RECTS,
+  BOT_USERNAME,
+  MIC_CONFIRM_PERSIST_SECONDS,
+  MAX_ROOM_USERS,
+  USER_LIST_ITEM_X_SPAN,
   RoomName,
   UIANode,
   cleanUsername,
@@ -12,10 +15,6 @@ import {
   runOfflineBotTests,
   TestCaseResult,
   TRIGGER_NAMES,
-  CAMFROG_WINDOW_TITLE_RE,
-  POLL_INTERVAL_SECONDS,
-  UIA_CACHE_SECONDS,
-  MAX_CHAT_MESSAGE_LENGTH,
 } from './lib/camfrogBot';
 import {
   Send,
@@ -220,6 +219,7 @@ export function App() {
         top: 37,
         right: 1473,
         bottom: 71,
+        focusable: true,
       },
       {
         id: 'tab-players',
@@ -230,91 +230,119 @@ export function App() {
         top: 37,
         right: 1633,
         bottom: 71,
+        focusable: true,
       },
       {
         id: 'pane-chat',
         control_type: CALIBRATED_UIA_RECTS.chat_window.control_type,
-        name: "Chat Window (User's Text/Commands)",
+        name: 'Chat Window Pane (Users Text & Moderation)',
         class_name: 'CEFPaneControl',
         left: CALIBRATED_UIA_RECTS.chat_window.rect[0],
         top: CALIBRATED_UIA_RECTS.chat_window.rect[1],
         right: CALIBRATED_UIA_RECTS.chat_window.rect[2],
         bottom: CALIBRATED_UIA_RECTS.chat_window.rect[3],
+        focusable: true,
       },
       {
-        id: 'btn-talk',
-        control_type: CALIBRATED_UIA_RECTS.talk_button.control_type,
-        name: 'Talk (Hold Press to Broadcast Audio)',
-        class_name: 'CButtonTS',
-        left: CALIBRATED_UIA_RECTS.talk_button.rect[0],
-        top: CALIBRATED_UIA_RECTS.talk_button.rect[1],
-        right: CALIBRATED_UIA_RECTS.talk_button.rect[2],
-        bottom: CALIBRATED_UIA_RECTS.talk_button.rect[3],
+        id: 'text-chat',
+        control_type: CALIBRATED_UIA_RECTS.chat_text.control_type,
+        name: 'Chat Window Text Stream (Join: / Quit: / Chat / Moderation)',
+        class_name: 'CEFTextControl',
+        left: CALIBRATED_UIA_RECTS.chat_text.rect[0],
+        top: CALIBRATED_UIA_RECTS.chat_text.rect[1],
+        right: CALIBRATED_UIA_RECTS.chat_text.rect[2],
+        bottom: CALIBRATED_UIA_RECTS.chat_text.rect[3],
+        focusable: false,
       },
       {
-        id: 'speaker-active',
-        control_type: 'Custom(50025)',
-        name: engine.activeSpeaker || '',
-        class_name: 'CButtonTS',
-        left: 1368,
-        top: 1169,
-        right: 1545,
-        bottom: 1195,
+        id: 'pane-chat-input',
+        control_type: CALIBRATED_UIA_RECTS.chat_input.control_type,
+        name: 'Chat Txt Field (Bot Input -> Click @ 1946, 1223)',
+        class_name: 'CEFChatInputPane',
+        left: CALIBRATED_UIA_RECTS.chat_input.rect[0],
+        top: CALIBRATED_UIA_RECTS.chat_input.rect[1],
+        right: CALIBRATED_UIA_RECTS.chat_input.rect[2],
+        bottom: CALIBRATED_UIA_RECTS.chat_input.rect[3],
+        focusable: false,
       },
       {
         id: 'list-users',
         control_type: CALIBRATED_UIA_RECTS.user_list.control_type,
-        name: 'User List Container (r=2559)',
+        name: `User List Container (Trending [l=${USER_LIST_ITEM_X_SPAN[0]}, r=${USER_LIST_ITEM_X_SPAN[1]}], max ${MAX_ROOM_USERS})`,
         class_name: 'CEFUserList',
         left: CALIBRATED_UIA_RECTS.user_list.rect[0],
         top: CALIBRATED_UIA_RECTS.user_list.rect[1],
         right: CALIBRATED_UIA_RECTS.user_list.rect[2],
         bottom: CALIBRATED_UIA_RECTS.user_list.rect[3],
-      },
-      // The 3 explicitly ignored ListItem(50007) bounding rectangles
-      {
-        id: 'ignored-1',
-        control_type: 'ListItem(50007)',
-        name: 'Section_Header_1',
-        class_name: 'ListItem',
-        left: IGNORED_USER_LIST_RECTS[0][0],
-        top: IGNORED_USER_LIST_RECTS[0][1],
-        right: IGNORED_USER_LIST_RECTS[0][2],
-        bottom: IGNORED_USER_LIST_RECTS[0][3],
-        ignored_reason: 'Explicitly Ignored Rect #1 [l=2303,t=141,r=2559,b=163]',
+        focusable: true,
       },
       {
-        id: 'ignored-2',
-        control_type: 'ListItem(50007)',
-        name: 'Section_Header_2',
-        class_name: 'ListItem',
-        left: IGNORED_USER_LIST_RECTS[1][0],
-        top: IGNORED_USER_LIST_RECTS[1][1],
-        right: IGNORED_USER_LIST_RECTS[1][2],
-        bottom: IGNORED_USER_LIST_RECTS[1][3],
-        ignored_reason: 'Explicitly Ignored Rect #2 [l=2303,t=207,r=2559,b=229]',
+        id: 'btn-talk',
+        control_type: CALIBRATED_UIA_RECTS.talk_button.control_type,
+        name: 'Talk Button (2 Quick Clicks + Hold to Transmit Audio, Release when Done)',
+        class_name: 'CButtonTS',
+        left: CALIBRATED_UIA_RECTS.talk_button.rect[0],
+        top: CALIBRATED_UIA_RECTS.talk_button.rect[1],
+        right: CALIBRATED_UIA_RECTS.talk_button.rect[2],
+        bottom: CALIBRATED_UIA_RECTS.talk_button.rect[3],
+        focusable: true,
       },
       {
-        id: 'ignored-3',
+        id: 'speaker-active',
+        control_type: CALIBRATED_UIA_RECTS.active_speaker.control_type,
+        name: engine.activeSpeaker || '(Idle / Erased from UI Tree — Mic Free)',
+        class_name: 'CButtonTS',
+        left: CALIBRATED_UIA_RECTS.active_speaker.rect[0],
+        top: CALIBRATED_UIA_RECTS.active_speaker.rect[1],
+        right: CALIBRATED_UIA_RECTS.active_speaker.rect[2],
+        bottom: CALIBRATED_UIA_RECTS.active_speaker.rect[3],
+        focusable: true,
+      },
+      {
+        id: 'text-top-gifters',
+        control_type: CALIBRATED_UIA_RECTS.top_gifters.control_type,
+        name: 'Top Gifters Section (Fallback Text Container)',
+        class_name: 'CEFTopGiftersText',
+        left: CALIBRATED_UIA_RECTS.top_gifters.rect[0],
+        top: CALIBRATED_UIA_RECTS.top_gifters.rect[1],
+        right: CALIBRATED_UIA_RECTS.top_gifters.rect[2],
+        bottom: CALIBRATED_UIA_RECTS.top_gifters.rect[3],
+        focusable: false,
+        ignored_reason: 'Top Gifters Overlay [l=1281,t=71,r=2559,b=1160] (Ignored unless fallback)',
+      },
+      // Dynamic section headers filtered out along trending [l=2359, r=2559]
+      {
+        id: 'filtered-viewing',
         control_type: 'ListItem(50007)',
-        name: 'Section_Header_3',
+        name: 'YOU ARE VIEWING 3',
         class_name: 'ListItem',
-        left: IGNORED_USER_LIST_RECTS[2][0],
-        top: IGNORED_USER_LIST_RECTS[2][1],
-        right: IGNORED_USER_LIST_RECTS[2][2],
-        bottom: IGNORED_USER_LIST_RECTS[2][3],
-        ignored_reason: 'Explicitly Ignored Rect #3 [l=2303,t=867,r=2559,b=889]',
+        left: 2359,
+        top: 141,
+        right: 2559,
+        bottom: 163,
+        ignored_reason: 'Filtered Dynamic Header: "YOU ARE VIEWING #"',
+      },
+      {
+        id: 'filtered-lurkers',
+        control_type: 'ListItem(50007)',
+        name: 'LURKERS 14',
+        class_name: 'ListItem',
+        left: 2359,
+        top: 480,
+        right: 2559,
+        bottom: 502,
+        ignored_reason: 'Filtered Dynamic Header: "LURKERS #"',
       },
     ];
 
     usersList.slice(0, 8).forEach((u, idx) => {
-      const top = 240 + idx * 24;
+      const top = 180 + idx * 24;
       baseNodes.push({
         id: `roster-${u.username}`,
         control_type: 'ListItem(50007)',
         name: u.username,
         class_name: 'ListItem',
-        left: 2303,
+        left: 2359,
         top,
         right: 2559,
         bottom: top + 22,
@@ -534,15 +562,15 @@ export function App() {
         <section className="border-b border-slate-800 pb-6 flex flex-col lg:flex-row lg:items-end justify-between gap-6">
           <div className="space-y-2 max-w-2xl">
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 font-mono">
-              <span>Chat Pane(50033): [1281,170,2299,1160]</span>
+              <span>Chat Pane/Text: [1281,170,2355,1160]</span>
               <span aria-hidden="true">·</span>
-              <span>Talk Button(50000): [1291,1169,1361,1195]</span>
+              <span>Chat Input: [1396,1206,2497,1241]</span>
               <span aria-hidden="true">·</span>
-              <span>User List(50008): [2303,141,2559,1160]</span>
+              <span>User List: [2359,141,2559,1160]</span>
               <span aria-hidden="true">·</span>
-              <span>
-                Audio Store: {engine.settings.continuous_audio_store ? 'Indexing to SQLite' : 'Paused'}
-              </span>
+              <span>Talk: [1291,1169,1361,1195]</span>
+              <span aria-hidden="true">·</span>
+              <span>Active Mic: [1506,1174,1548,1190] ({BOT_USERNAME} {MIC_CONFIRM_PERSIST_SECONDS}s)</span>
             </div>
             <h1 className="font-display text-2xl sm:text-3xl font-bold text-white tracking-tight">
               Camfrog UI-Automation Bot &amp; Continuous Audio Store
@@ -588,15 +616,15 @@ export function App() {
               <div className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
                   <div>
-                    <h2 className="text-lg font-semibold text-white">01. Pane(50033) Chat Stream &amp; Audio Index</h2>
+                    <h2 className="text-lg font-semibold text-white">01. Pane(50033) &amp; Text(50020) Chat Stream</h2>
                     <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-1 font-mono">
-                      <span>Rect: [l=1281,t=170,r=2299,b=1160]</span>
+                      <span>Chat: [l=1281,t=170,r=2355,b=1160]</span>
+                      <span aria-hidden="true">·</span>
+                      <span>Input: [l=1396,t=1206,r=2497,b=1241]</span>
                       <span aria-hidden="true">·</span>
                       <span>Active Tab: {engine.currentRoom}</span>
                       <span aria-hidden="true">·</span>
-                      <span>Chat Mode: {engine.settings.chat_mode ? 'On' : 'Off'}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>Audio Transcription: {engine.settings.transcription_mode ? 'Recording' : 'Off'}</span>
+                      <span>Mic [1506,1174,1548,1190]: {engine.activeSpeaker || 'FREE'}</span>
                     </div>
                   </div>
 
@@ -740,6 +768,31 @@ export function App() {
                     </button>
                   </div>
                 </form>
+                {/* Join: / Quit: Chat Window Presence Simulator */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80 text-xs">
+                  <span className="text-slate-400 font-mono">
+                    Simulate Chat Window <code className="text-slate-200">Join:</code> / <code className="text-slate-200">Quit:</code> for{' '}
+                    <span className="text-white font-semibold">{senderInput || 'User'}</span> (tracks room duration):
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSimulatePresence('join')}
+                      className="px-2.5 py-1 font-mono bg-slate-950 hover:bg-slate-800 text-emerald-300 border border-slate-800 rounded flex items-center gap-1"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      Join: {senderInput || 'User'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSimulatePresence('quit')}
+                      className="px-2.5 py-1 font-mono bg-slate-950 hover:bg-slate-800 text-amber-300 border border-slate-800 rounded flex items-center gap-1"
+                    >
+                      <UserMinus className="w-3.5 h-3.5" />
+                      Quit: {senderInput || 'User'}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -748,19 +801,60 @@ export function App() {
               {/* Continuous Audio Recording & Storage Panel */}
               <div className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-white">02. Continuous Audio Recording</h2>
+                  <h2 className="text-lg font-semibold text-white">02. Active Mic [1506,1174,1548,1190]</h2>
                   <span className="text-xs font-mono text-emerald-300">
-                    {engine.settings.continuous_audio_store ? 'STORING ALL' : 'PAUSED'}
+                    {engine.activeSpeaker ? `ON MIC: ${engine.activeSpeaker}` : 'MIC FREE (ERASED)'}
                   </span>
                 </div>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  Originally, <code className="text-slate-100">camfrog_bot.py</code> had{' '}
-                  <code className="text-slate-100">transcription_mode</code> reserved with no speech capture. It is now
-                  upgraded: when enabled, spoken audio from the active speaker next to{' '}
-                  <code className="text-slate-100">Button(50000)</code> is continuously transcribed and indexed into{' '}
-                  <code className="text-slate-100">audio_transcripts</code> and <code className="text-slate-100">bot_messages</code>{' '}
-                  for <code className="text-slate-100">!info on</code> and <code className="text-slate-100">!who is</code>.
+                  Watches <code className="text-slate-100">Button(50000) [l=1506,t=1174,r=1548,b=1190]</code> continuously.
+                  While a user&apos;s name flows here, speech is transcribed to their profile and the bot will not click Talk.
+                  When the name disappears, the bot performs <strong>2 quick clicks + hold</strong> on{' '}
+                  <code className="text-slate-100">[l=1291,t=1169,r=1361,b=1195]</code> and waits until{' '}
+                  <code className="text-emerald-300">{BOT_USERNAME}</code> persists for{' '}
+                  <code className="text-emerald-300">{MIC_CONFIRM_PERSIST_SECONDS}s</code> before broadcasting audio.
                 </p>
+
+                <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono">
+                  <span className="text-slate-300">
+                    [1506,1174,1548,1190]:{' '}
+                    <strong className={engine.activeSpeaker ? 'text-amber-300' : 'text-emerald-300'}>
+                      {engine.activeSpeaker || 'Empty / Erased'}
+                    </strong>
+                  </span>
+                  {engine.activeSpeaker ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        engine.activeSpeaker = null;
+                        if (engine.queuedBroadcasts.length > 0) {
+                          const next = engine.queuedBroadcasts.shift()!;
+                          engine.sendReply(
+                            BOT_USERNAME,
+                            `[Mic Freed @ [1506,1174,1548,1190]] 2 quick clicks + hold on [1291,1169,1361,1195], "${BOT_USERNAME}" persisted ${MIC_CONFIRM_PERSIST_SECONDS}s -> Broadcasted: "${next}"`,
+                            new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+                            selectedRoom
+                          );
+                        }
+                        bump();
+                      }}
+                      className="px-2.5 py-1 bg-emerald-400 text-slate-950 font-semibold rounded hover:bg-emerald-300 whitespace-nowrap"
+                    >
+                      Clear Mic (Erase Node)
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        engine.activeSpeaker = cleanUsername(micUserInput) || 'Stonerwayne1000';
+                        bump();
+                      }}
+                      className="px-2.5 py-1 bg-slate-800 text-slate-200 rounded hover:bg-slate-700 whitespace-nowrap"
+                    >
+                      Set {cleanUsername(micUserInput) || 'User'} on Mic
+                    </button>
+                  )}
+                </div>
 
                 {/* Live Microphone Speech-to-Text Capture Button */}
                 <div className="space-y-2 pt-1">
@@ -863,10 +957,10 @@ export function App() {
                         setIsHoldingTalk(false);
                         const heldSec = Math.max(1, Math.round((Date.now() - holdStartRef.current) / 1000));
                         engine.store.recordMicGrab(
-                          'kaekae_bot',
+                          BOT_USERNAME,
                           heldSec,
                           undefined,
-                          `Broadcasted ${heldSec}s audio via Button(50000) Hold-to-Talk`,
+                          `2 quick clicks + hold on Button(50000) [1291,1169,1361,1195] (${BOT_USERNAME} persisted ${MIC_CONFIRM_PERSIST_SECONDS}s at [1506,1174,1548,1190])`,
                           selectedRoom,
                           true
                         );
@@ -1040,7 +1134,8 @@ export function App() {
                     <tr className="border-b border-slate-800 text-xs text-slate-400 font-mono">
                       <th className="py-2.5 px-3">username</th>
                       <th className="py-2.5 px-3">first_seen</th>
-                      <th className="py-2.5 px-3">last_seen</th>
+                      <th className="py-2.5 px-3">joined_at</th>
+                      <th className="py-2.5 px-3 text-right">chat_duration</th>
                       <th className="py-2.5 px-3 text-right">message_count</th>
                       <th className="py-2.5 px-3 text-right">active</th>
                       <th className="py-2.5 px-3 text-right">Vault Action</th>
@@ -1051,10 +1146,13 @@ export function App() {
                       <tr key={u.username} className="hover:bg-slate-900/60">
                         <td className="py-2.5 px-3 font-semibold text-white">{u.username}</td>
                         <td className="py-2.5 px-3 text-slate-400 tabular-nums">{u.first_seen}</td>
-                        <td className="py-2.5 px-3 text-slate-400 tabular-nums">{u.last_seen}</td>
+                        <td className="py-2.5 px-3 text-slate-400 tabular-nums">{u.joined_at || '—'}</td>
+                        <td className="py-2.5 px-3 text-right text-emerald-300 tabular-nums">
+                          {Math.round(u.total_chat_seconds || 0)}s
+                        </td>
                         <td className="py-2.5 px-3 text-right text-slate-200 tabular-nums">{u.message_count}</td>
                         <td className="py-2.5 px-3 text-right text-slate-300 tabular-nums">
-                          {u.active === 1 ? '1 (Active)' : '0 (Quit)'}
+                          {u.active === 1 ? '1 (In Room)' : '0 (Quit)'}
                         </td>
                         <td className="py-2.5 px-3 text-right">
                           <button
@@ -1246,12 +1344,17 @@ export function App() {
             <div className="lg:col-span-8 border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-4">
               <div className="border-b border-slate-800 pb-4">
                 <h2 className="text-lg font-semibold text-white">
-                  Calibrated UIA Control Tree &amp; Ignored ListItem(50007) Filter
+                  Calibrated UIA Control Tree &amp; Trending [l=2359, r=2559] User List Filter
                 </h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  Uses fixed control coordinates and filters out the 3 non-user{' '}
-                  <code className="text-slate-200 font-mono">ListItem(50007)</code> rectangles in{' '}
-                  <code className="text-slate-200 font-mono">List(50008) [l=2303,t=141,r=2559,b=1160]</code>.
+                  Pulls chat &amp; moderation from <code className="text-slate-200 font-mono">[l=1281,t=170,r=2355,b=1160]</code>,
+                  sends text via <code className="text-slate-200 font-mono">Pane(50033) [l=1396,t=1206,r=2497,b=1241]</code>,
+                  scans trending <code className="text-slate-200 font-mono">[l=2359,r=2559]</code> items in{' '}
+                  <code className="text-slate-200 font-mono">List(50008) [l=2359,t=141,r=2559,b=1160]</code> while removing{' '}
+                  <code className="text-amber-300 font-mono">YOU ARE VIEWING #</code> and{' '}
+                  <code className="text-amber-300 font-mono">LURKERS #</code>, and watches{' '}
+                  <code className="text-slate-200 font-mono">Button(50000) [l=1506,t=1174,r=1548,b=1190]</code> for{' '}
+                  <code className="text-emerald-300 font-mono">{BOT_USERNAME}</code> ({MIC_CONFIRM_PERSIST_SECONDS}s).
                 </p>
               </div>
 
@@ -1306,14 +1409,16 @@ export function App() {
                         Room_List: '(1390, 50)',
                         Players__Lounge: '(1550, 50)',
                       },
-                      chat_window_Pane_50033: '[l=1281, t=170, r=2299, b=1160]',
+                      chat_window_Pane_50033: '[l=1281, t=170, r=2355, b=1160]',
+                      chat_window_Text_50020: '[l=1281, t=170, r=2355, b=1160]',
+                      chat_input_Pane_50033: '[l=1396, t=1206, r=2497, b=1241]',
+                      user_list_List_50008: '[l=2359, t=141, r=2559, b=1160]',
+                      user_list_trend_span: '[l=2359, r=2559] (max 100 users)',
+                      filtered_headers: ['YOU ARE VIEWING #', 'VIEWING #', 'LURKERS #'],
                       talk_button_Button_50000: '[l=1291, t=1169, r=1361, b=1195]',
-                      user_list_List_50008: '[l=2303, t=141, r=2559, b=1160]',
-                      ignored_ListItems_50007: [
-                        '[l=2303, t=141, r=2559, b=163]',
-                        '[l=2303, t=207, r=2559, b=229]',
-                        '[l=2303, t=867, r=2559, b=889]',
-                      ],
+                      active_speaker_Button_50000: '[l=1506, t=1174, r=1548, b=1190]',
+                      bot_broadcast_gate: `${BOT_USERNAME} persists ${MIC_CONFIRM_PERSIST_SECONDS}s`,
+                      top_gifters_Text_50020: '[l=1281, t=71, r=2559, b=1160]',
                     },
                     null,
                     2

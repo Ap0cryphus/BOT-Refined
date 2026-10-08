@@ -1,24 +1,15 @@
-2026-10-08 11:35:54,790 INFO Connected to Camfrog via UI Automation.
-2026-10-08 11:35:54,793 INFO Connected to Camfrog via UI Automation.
-2026-10-08 11:35:54,802 INFO Connected to Camfrog via UI Automation.
-2026-10-08 11:35:54,806 INFO Connected to Camfrog via UI Automation.
-2026-10-08 11:35:54,816 INFO Connected to Camfrog via UI Automation.
-2026-10-08 11:53:01,902 INFO Connected to Camfrog via UI Automation.
-2026-10-08 11:53:01,908 INFO Connected to Camfrog via UI Automation.
-2026-10-08 11:53:01,918 INFO Connected to Camfrog via UI Automation.
-2026-10-08 11:53:01,923 INFO Connected to Camfrog via UI Automation.
-2026-10-08 11:53:01,934 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:01:23,379 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:01:23,439 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:01:23,518 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:01:23,586 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:01:23,682 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:01:24,154 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:02:01,876 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:02:01,940 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:02:02,018 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:02:02,087 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:02:02,186 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:02:35,221 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:03:10,226 INFO Connected to Camfrog via UI Automation.
-2026-10-08 05:03:56,979 WARNING Kill switch requested.
+2026-10-08 13:35:21,160 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 13:35:21,160 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 13:35:21,167 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 13:35:21,167 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 13:35:21,169 INFO Presence event: quit -> Stonerwayne1000
+2026-10-08 13:35:21,175 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 13:35:21,175 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 13:35:21,180 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 13:35:21,180 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 13:35:21,190 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 13:35:21,190 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 13:35:21,199 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 13:35:21,199 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 13:35:21,212 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 13:35:21,212 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
