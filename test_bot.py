@@ -162,24 +162,45 @@ class CamfrogBotTests(unittest.TestCase):
         self.assertIn(("quit", "liketosquirt"), presence_pairs)
         self.assertIn(("join", "ward1dp"), presence_pairs)
 
-        # 2. User List counting: excludes Page scrollbar and subtracts the 3 section headers (YOU ARE VIEWING, MEMBERS, LURKERS)
+        # 2. User List counting: sums the 3 ignored section headers (YOU ARE VIEWING # + MEMBERS # + LURKERS #)
+        #    and excludes Page scrollbar and OCR header fragments
         ui = CamfrogUIAutomation()
         fake_nodes = [
-            UIANode("ListItem", "YOU ARE VIEWING 0", "", 2359, 141, 2543, 163),
-            UIANode("ListItem", "MEMBERS 14", "", 2359, 165, 2543, 187),
+            UIANode("ListItem", "YOU ARE VIEWING (2)", "", 2359, 141, 2543, 163),
+            UIANode("ListItem", "MEMBERS (16)", "", 2359, 165, 2543, 187),
             UIANode("ListItem", "10 Mr,Bl3sS", "", 2359, 190, 2543, 212),
             UIANode("ListItem", "tsyko", "", 2359, 215, 2543, 237),
             UIANode("ListItem", "Gothic_Chaos", "", 2359, 240, 2543, 262),
-            UIANode("ListItem", "LURKERS 11", "", 2359, 520, 2543, 542),
+            UIANode("ListItem", "LURKERS (12)", "", 2359, 520, 2543, 542),
             UIANode("ListItem", "KaeKae_Toad", "", 2359, 545, 2543, 567),
             UIANode("Button", "Page", "", 2544, 200, 2559, 800),
         ]
         count, users = ui._scan_users_header_and_list_from_uia(fake_nodes)
-        self.assertEqual(count, 25)  # 14 MEMBERS + 11 LURKERS = 25
+        self.assertEqual(count, 30)  # 2 YOU ARE VIEWING + 16 MEMBERS + 12 LURKERS = 30
         self.assertNotIn("Page", users)
         self.assertIn("tsyko", users)
         self.assertIn("Gothic_Chaos", users)
         self.assertIn("KaeKae_Toad", users)
+
+        # 3. Verify URLs ('https://...') and OCR header fragments ('BERS', 'ERS', 'lol', 'right') are rejected as usernames
+        self.assertEqual(clean_username("BERS"), "")
+        self.assertEqual(clean_username("ERS"), "")
+        self.assertEqual(clean_username("lol"), "")
+        self.assertEqual(clean_username("right"), "")
+        self.assertEqual(clean_username("https"), "")
+        url_events = CamfrogUIAutomation._parse_text_tokens_into_events([
+            ("Text", "https://static.camfrogcdn.com/vue_static/pages/room_browser.html#/home"),
+            ("Text", "$htickie"),
+            ("Text", ":"),
+            ("Text", "!triggers"),
+        ])
+        self.assertEqual(len(url_events), 1)
+        self.assertEqual(url_events[0]["user"], "$htickie")
+        self.assertEqual(url_events[0]["text"], "!triggers")
+
+        # 4. Verify !triggers dispatches reply to Chat Txt Field
+        self.bot._handle_message("$htickie", "!triggers", "2:00 PM")
+        self.assertTrue(any("Triggers: !chat" in msg for msg in self.ui.sent))
 
     def test_calibrated_coordinates_constants(self) -> None:
         self.assertEqual(CHAT_WINDOW_RECT, (1281, 170, 2355, 1160))

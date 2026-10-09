@@ -17,11 +17,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from camfrog_bot import CamfrogStore, detect_moderation
+from camfrog_bot import CamfrogBot, detect_moderation
 from config import (
     ACTIVE_SPEAKER_RECT,
     CHAT_INPUT_RECT,
     CHAT_WINDOW_RECT,
+    POLL_INTERVAL_SECONDS,
     ROOM_TAB_CLICK_POINTS,
     TALK_BUTTON_RECT,
     USER_LIST_RECT,
@@ -30,38 +31,46 @@ from ui_automation import CamfrogUIAutomation
 
 
 class RoomMonitor:
-    """Monitors and displays all room information in a second terminal."""
+    """Monitors and displays all room information in a terminal while also dispatching bot triggers (!triggers, !who is, etc.)."""
 
-    def __init__(self):
-        self.ui_automation = CamfrogUIAutomation()
-        self.store = CamfrogStore()
+    def __init__(self, *, dry_run: bool = False):
+        self.bot = CamfrogBot(dry_run=dry_run)
+        self.ui_automation = self.bot.ui_automation
+        self.store = self.bot.store
         self.running = False
         self.last_events: set[str] = set()
 
     def start_monitoring(self) -> bool:
-        print("=== CAMFROG ROOM MONITOR (CALIBRATED UIA PIPELINE) ===")
+        print("=== CAMFROG ROOM MONITOR + BOT TRIGGER PIPELINE ===")
         print("Connecting to Camfrog...")
-        if not self.ui_automation.connect_to_camfrog():
+        if not self.bot.initialize(mark_existing_seen=True):
             print(f"ERROR: Could not connect to Camfrog: {self.ui_automation.last_error}")
             return False
 
+        # Sync initial scrollback events so we only display and trigger on new live events
+        for event in self.ui_automation.get_chat_events():
+            event_key = f"{event.get('kind', '')}:{event.get('user', '')}:{event.get('text', '')}:{event.get('timestamp', '')}"
+            self.last_events.add(event_key)
+
         print("Connected to Camfrog successfully!")
         print(f"Locations: {json.dumps(self.ui_automation.layout_locations())}")
-        initial_users = self.ui_automation.get_user_list(refresh=False)
+        initial_users = self.bot.initial_users
         user_count = self.ui_automation.get_user_count(refresh=False)
-        self.store.seed_initial_users(initial_users)
         print(
             f"Initial Room Roster [l={USER_LIST_RECT[0]},r={USER_LIST_RECT[2]}] "
             f"(USERS (#): {user_count} | Listed: {len(initial_users)}): "
             f"{', '.join(initial_users[:15])}"
         )
-        print("Monitoring room activities... Press Ctrl+C to stop.\n")
+        print(
+            f"Fast polling active (every {POLL_INTERVAL_SECONDS}s) + live bot triggers enabled "
+            f"(!triggers, !who is, !info on, !say, etc.) -> Chat Input {CHAT_INPUT_RECT}.\n"
+        )
         self.running = True
 
         try:
             while self.running:
                 self._display_room_info()
-                time.sleep(2.0)
+                time.sleep(max(0.25, POLL_INTERVAL_SECONDS))
         except KeyboardInterrupt:
             print("\nMonitoring stopped by user.")
             self.running = False
@@ -72,6 +81,7 @@ class RoomMonitor:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # Force a fresh UIA snapshot each cycle so Active Speaker, USERS (#), and Chat are up to date
         self.ui_automation.nodes(refresh=True)
+        self.bot._track_active_speaker()
         current_room = self.ui_automation.get_current_room()
         speaker = self.ui_automation.get_active_speaker(refresh=False)
         users = self.ui_automation.get_user_list(refresh=False)
@@ -87,9 +97,12 @@ class RoomMonitor:
                 if event.get("kind") == "presence":
                     self.store.record_presence(event.get("user", ""), event.get("action", "join"), event_key)
                 elif event.get("kind") == "message":
-                    self.store.record_message(event.get("user", ""), event.get("text", ""), event.get("timestamp", ""))
+                    self.bot._handle_message(event.get("user", ""), event.get("text", ""), event.get("timestamp", ""))
 
-        effective_count = max(users_header_count, len(users), self.store.active_user_count())
+        self.bot._run_scheduled_disses()
+
+        # Prefer the sum of the 3 User List headers (YOU ARE VIEWING + MEMBERS + LURKERS) / Users (#) count
+        effective_count = users_header_count if users_header_count > 0 else (len(users) or self.store.active_user_count())
         print(
             f"[{timestamp}] Room: {current_room or 'Unknown'} | "
             f"Users: {effective_count} (Listed: {len(users)}, Active Tracked: {self.store.active_user_count()}) | "
@@ -108,7 +121,6 @@ class RoomMonitor:
                     print(f"    [MSG] {ts} {user}: {text}")
                     moderation = detect_moderation(text)
                     if moderation:
-                        self.store.record_moderation(moderation, text)
                         print(f"    [MOD] {moderation['actor']} {moderation['action']} {moderation['target']}")
                 elif event_type == "presence":
                     action = event.get("action", "unknown")

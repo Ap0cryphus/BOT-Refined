@@ -262,6 +262,8 @@ class CamfrogStore:
         observed_at = now_iso()
         seeded = 0
         with self._session() as db:
+            # Reset active=0 on all pre-existing users first so stale sessions never inflate active_user_count() into the 50s-70s
+            db.execute("UPDATE bot_users SET active = 0")
             for raw in usernames:
                 user = clean_username(raw)
                 if not user or self.is_suppressed(user):
@@ -278,7 +280,7 @@ class CamfrogStore:
                         (user, observed_at, observed_at, observed_at),
                     )
                 else:
-                    joined_at = existing["joined_at"] if (existing["active"] and existing["joined_at"]) else observed_at
+                    joined_at = existing["joined_at"] or observed_at
                     db.execute(
                         "UPDATE bot_users SET last_seen = ?, active = 1, joined_at = ? WHERE username = ?",
                         (observed_at, joined_at, user),
@@ -288,27 +290,40 @@ class CamfrogStore:
                     break
         return seeded
 
-    def record_message(self, username: str, body: str, room_time: str) -> None:
-        if self.is_suppressed(username):
+    def record_message(self, username: str, body: str, room_time: str, *, mark_active: bool = True) -> None:
+        username = clean_username(username)
+        if not username or self.is_suppressed(username):
             return
         observed_at = now_iso()
         key = message_key(username, body, room_time)
+        active_val = 1 if mark_active else 0
+        joined_val = observed_at if mark_active else ""
         with self._session() as db:
             inserted = db.execute(
                 "INSERT OR IGNORE INTO bot_messages(event_key, username, body, observed_at, room_time) VALUES (?, ?, ?, ?, ?)",
                 (key, username, body, observed_at, room_time),
             ).rowcount
             if inserted:
-                db.execute(
-                    """INSERT INTO bot_users(username, first_seen, last_seen, message_count, active, joined_at, total_chat_seconds)
-                    VALUES (?, ?, ?, 1, 1, ?, 0)
-                    ON CONFLICT(username) DO UPDATE SET
-                        last_seen=excluded.last_seen,
-                        message_count=bot_users.message_count + 1,
-                        active=1,
-                        joined_at=CASE WHEN bot_users.joined_at = '' THEN excluded.joined_at ELSE bot_users.joined_at END""",
-                    (username, observed_at, observed_at, observed_at),
-                )
+                if mark_active:
+                    db.execute(
+                        """INSERT INTO bot_users(username, first_seen, last_seen, message_count, active, joined_at, total_chat_seconds)
+                        VALUES (?, ?, ?, 1, 1, ?, 0)
+                        ON CONFLICT(username) DO UPDATE SET
+                            last_seen=excluded.last_seen,
+                            message_count=bot_users.message_count + 1,
+                            active=1,
+                            joined_at=CASE WHEN bot_users.joined_at = '' THEN excluded.joined_at ELSE bot_users.joined_at END""",
+                        (username, observed_at, observed_at, joined_val),
+                    )
+                else:
+                    db.execute(
+                        """INSERT INTO bot_users(username, first_seen, last_seen, message_count, active, joined_at, total_chat_seconds)
+                        VALUES (?, ?, ?, 1, 0, '', 0)
+                        ON CONFLICT(username) DO UPDATE SET
+                            last_seen=excluded.last_seen,
+                            message_count=bot_users.message_count + 1""",
+                        (username, observed_at, observed_at),
+                    )
 
     def record_presence(self, username: str, action: str, event_key: str) -> None:
         """Record Join: or Quit: from the Chat Window and update the user's duration in chat."""
@@ -468,7 +483,7 @@ class CamfrogBot:
                 LOG.warning("Initial user list scan failed: %s", error)
 
         # 2. Mark pre-existing chat scrollback as seen in continuous mode so we only dispatch on new live events,
-        #    while still recording Join:/Quit: presence and moderation notices from visible scrollback!
+        #    while still recording messages, Join:/Quit: presence, and moderation notices from visible scrollback!
         if mark_existing_seen:
             for event in self.ui_automation.get_chat_events():
                 key = self._event_key(event)
@@ -476,6 +491,12 @@ class CamfrogBot:
                 if event.get("kind") == "presence":
                     self.store.record_presence(event.get("user", ""), event.get("action", "join"), key)
                 elif event.get("kind") == "message":
+                    self.store.record_message(
+                        event.get("user", ""),
+                        event.get("text", ""),
+                        event.get("timestamp", ""),
+                        mark_active=False,
+                    )
                     moderation = detect_moderation(event.get("text", ""))
                     if moderation:
                         self.store.record_moderation(moderation, event.get("text", ""))

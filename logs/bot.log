@@ -13,268 +13,126 @@
 2026-10-08 13:35:21,199 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
 2026-10-08 13:35:21,212 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
 2026-10-08 13:35:21,212 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 07:05:21,415 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 07:05:21,415 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 07:05:21,487 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 07:05:21,489 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 07:05:21,496 INFO Presence event: quit -> Stonerwayne1000
-2026-10-08 07:05:21,564 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 07:05:21,564 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 07:05:21,633 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 07:05:21,634 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 07:05:21,720 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 07:05:21,720 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 07:05:21,805 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 07:05:21,805 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 07:05:21,913 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 07:05:21,913 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 07:06:51,855 INFO Seeded 0 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 07:06:51,870 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 07:08:58,569 INFO Seeded 0 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 07:08:58,588 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:22:03,267 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:22:03,267 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:22:03,337 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:22:03,337 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:22:03,406 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:22:03,406 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:22:03,413 INFO Presence event: quit -> Stonerwayne1000
-2026-10-08 09:22:03,484 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:22:03,484 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:22:03,555 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:22:03,555 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:22:03,639 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:22:03,639 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:22:03,724 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:22:03,724 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:22:03,833 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:22:03,833 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:24:48,034 INFO Seeded 1 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:24:48,036 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:56:37,355 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:56:37,355 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:56:37,426 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:56:37,426 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:56:37,495 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:56:37,495 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:56:37,502 INFO Presence event: quit -> Stonerwayne1000
-2026-10-08 09:56:37,575 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:56:37,575 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:56:37,643 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:56:37,643 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:56:37,728 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:56:37,728 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:56:37,813 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:56:37,813 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:56:37,920 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:56:37,920 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 09:56:49,770 INFO Seeded 1 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 09:56:49,774 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 10:56:35,658 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 10:56:35,658 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 10:56:35,729 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 10:56:35,729 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 10:56:35,799 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 10:56:35,799 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 10:56:35,869 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 10:56:35,870 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 10:56:35,877 INFO Presence event: quit -> Stonerwayne1000
-2026-10-08 10:56:35,945 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 10:56:35,945 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 10:56:36,015 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 10:56:36,015 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 10:56:36,100 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 10:56:36,100 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 10:56:36,186 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 10:56:36,186 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 10:56:36,295 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 10:56:36,295 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 10:59:35,190 INFO Seeded 40 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:00:11,289 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:08,651 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:08,651 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:08,721 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:08,721 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:08,791 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:08,791 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:08,860 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:08,860 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:08,869 INFO Presence event: quit -> Stonerwayne1000
-2026-10-08 11:11:08,940 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:08,940 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:09,010 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:09,010 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:09,097 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:09,097 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:09,182 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:09,182 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:09,289 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:09,289 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:38,925 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:38,925 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:38,996 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:38,996 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:39,065 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:39,065 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:39,136 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:39,136 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:39,143 INFO Presence event: quit -> Stonerwayne1000
-2026-10-08 11:11:39,213 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:39,213 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:39,282 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:39,282 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:39,368 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:39,368 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:39,453 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:39,453 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:11:39,559 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:11:39,561 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:13:02,873 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:13:02,873 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:13:02,943 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:13:02,943 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:13:03,011 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:13:03,011 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:13:03,080 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:13:03,081 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:13:03,089 INFO Presence event: quit -> Stonerwayne1000
-2026-10-08 11:13:03,160 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:13:03,160 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:13:03,229 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:13:03,229 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:13:03,315 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:13:03,315 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:13:03,398 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:13:03,398 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:13:03,505 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:13:03,505 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:16:20,620 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:16:20,620 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:16:20,688 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:16:20,688 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:16:20,757 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:16:20,757 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:16:20,827 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:16:20,827 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:16:20,835 INFO Presence event: quit -> Stonerwayne1000
-2026-10-08 11:16:20,906 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:16:20,906 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:16:20,975 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:16:20,975 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:16:21,061 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:16:21,061 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:16:21,146 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:16:21,147 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:16:21,253 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:16:21,253 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:17:42,381 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:17:42,381 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:17:42,451 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:17:42,451 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:17:42,520 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:17:42,520 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:17:42,589 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:17:42,589 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:17:42,598 INFO Presence event: quit -> Stonerwayne1000
-2026-10-08 11:17:42,670 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:17:42,670 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:17:42,740 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:17:42,740 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:17:42,824 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:17:42,824 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:17:42,911 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:17:42,911 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:17:43,017 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:17:43,017 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:21:37,687 INFO Seeded 0 initial room users from User List (2359, 141, 2559, 1160).
-2026-10-08 11:21:39,544 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
-2026-10-08 11:22:58,882 INFO Moderation notice recorded: CYBERBABY2 blocked bigchurch69
-2026-10-08 11:22:58,894 INFO Moderation notice recorded: CYBERBABY2 unblocked bigchurch69
-2026-10-08 11:22:58,904 INFO Presence event: join -> Dashcoin
-2026-10-08 11:22:58,916 INFO Presence event: join -> Fauve
-2026-10-08 11:22:58,926 INFO Presence event: quit -> Fauve
-2026-10-08 11:22:58,934 INFO Presence event: quit -> YAYABENSON
-2026-10-08 11:22:58,946 INFO Presence event: join -> tmofo25
-2026-10-08 11:22:58,955 INFO Presence event: quit -> Park_Up_Pussie
-2026-10-08 11:22:58,967 INFO Presence event: join -> Jamallll
-2026-10-08 11:22:58,979 INFO Presence event: quit -> Jamallll
-2026-10-08 11:22:58,986 INFO Moderation notice recorded: MRNADER blocked tsyko
-2026-10-08 11:22:58,995 INFO Presence event: join -> AceinSpace
-2026-10-08 11:22:59,004 INFO Presence event: quit -> AceinSpace
-2026-10-08 11:22:59,016 INFO Presence event: quit -> tmofo25
-2026-10-08 11:22:59,025 INFO Presence event: quit -> trigg420
-2026-10-08 11:22:59,039 INFO Presence event: join -> GeneralSusvin
-2026-10-08 11:22:59,046 INFO Presence event: join -> BigDaddy_GreenThumb
-2026-10-08 11:22:59,055 INFO Presence event: quit -> GeneralSusvin
-2026-10-08 11:22:59,064 INFO Presence event: quit -> BigDaddy_GreenThumb
-2026-10-08 11:22:59,072 INFO Presence event: join -> DoughBoyFresh
-2026-10-08 11:22:59,081 INFO Presence event: join -> Ganj
-2026-10-08 11:22:59,089 INFO Presence event: quit -> DoughBoyFresh
-2026-10-08 11:22:59,100 INFO Presence event: join -> SkylineJessyka1
-2026-10-08 11:22:59,114 INFO Presence event: join -> daddychill
-2026-10-08 11:22:59,123 INFO Presence event: quit -> daddychill
-2026-10-08 11:22:59,133 INFO Presence event: join -> Dab_45
-2026-10-08 11:22:59,143 INFO Presence event: quit -> Dab_45
-2026-10-08 11:22:59,150 INFO Presence event: join -> milfndsugarrrr
-2026-10-08 11:22:59,161 INFO Presence event: quit -> milfndsugarrrr
-2026-10-08 11:22:59,170 INFO Presence event: join -> BXDUDE180
-2026-10-08 11:22:59,179 INFO Presence event: join -> adanalimm
-2026-10-08 11:22:59,186 INFO Presence event: quit -> adanalimm
-2026-10-08 11:22:59,195 INFO Presence event: quit -> iPirate_agent_
-2026-10-08 11:22:59,205 INFO Presence event: join -> Mephobia
-2026-10-08 11:22:59,212 INFO Presence event: join -> tysko
-2026-10-08 11:22:59,220 INFO Presence event: join -> iPirate_agent_
-2026-10-08 11:22:59,231 INFO Presence event: quit -> BXDUDE180
-2026-10-08 11:22:59,238 INFO Presence event: quit -> Mephobia
-2026-10-08 11:24:03,428 INFO Mic grab recorded: Amy (64.6s)
-2026-10-08 11:25:12,521 INFO Presence event: join -> Jen_Jen_Jen
-2026-10-08 11:25:12,539 INFO Presence event: join -> Gold_mng
-2026-10-08 11:26:18,113 INFO Mic grab recorded: Speaker_On_Mic[1506,1174,1567,1190] (134.7s)
-2026-10-08 11:26:18,148 INFO Presence event: join -> miakze
-2026-10-08 11:26:18,165 INFO Presence event: join -> tuxbot
-2026-10-08 11:26:18,181 INFO Presence event: join -> iTodd
-2026-10-08 11:27:21,985 INFO Presence event: quit -> miakze
-2026-10-08 11:27:21,995 INFO Presence event: quit -> tysko
-2026-10-08 11:28:25,902 INFO Mic grab recorded: Speaker_On_Mic[1506,1174,1573,1190] (127.8s)
-2026-10-08 11:28:25,932 INFO Presence event: quit -> Mr
-2026-10-08 11:29:30,834 INFO Presence event: quit -> tuxbot
-2026-10-08 11:30:35,444 INFO Presence event: join -> checkingu0ut
-2026-10-08 11:30:35,460 INFO Presence event: join -> farmi
-2026-10-08 11:30:35,475 INFO Presence event: quit -> farmi
-2026-10-08 11:30:35,484 INFO Presence event: join -> fali88030
-2026-10-08 11:32:45,445 INFO Presence event: quit -> Gold_mng
-2026-10-08 11:33:49,833 INFO Mic grab recorded: Speaker_On_Mic[1506,1174,1573,1190] (194.5s)
-2026-10-08 11:34:54,004 INFO Mic grab recorded: Speaker_On_Mic[1506,1174,1559,1190] (64.2s)
-2026-10-08 11:35:58,531 INFO Presence event: quit -> Dashcoin
-2026-10-08 11:37:02,486 INFO Mic grab recorded: Speaker_On_Mic[1506,1174,1573,1190] (128.5s)
-2026-10-08 11:37:02,512 INFO Presence event: join -> prebs77
-2026-10-08 11:38:07,599 INFO Mic grab recorded: Speaker_On_Mic[1506,1174,1559,1190] (65.1s)
-2026-10-08 11:39:10,704 INFO Presence event: quit -> prebs77
-2026-10-08 11:39:10,721 INFO Presence event: quit -> Jen_Jen_Jen
-2026-10-08 11:40:19,304 INFO Mic grab recorded: Speaker_On_Mic[1506,1174,1563,1190] (131.7s)
-2026-10-08 11:41:28,072 INFO Mic grab recorded: Speaker_On_Mic[1506,1174,1573,1190] (68.8s)
-2026-10-08 11:42:37,831 INFO Mic grab recorded: Speaker_On_Mic[1506,1174,1559,1190] (69.8s)
-2026-10-08 11:43:54,404 INFO Mic grab recorded: Speaker_On_Mic[1506,1174,1573,1190] (76.6s)
-2026-10-08 11:43:54,447 INFO Presence event: join -> tajnysmiral
-2026-10-08 11:43:54,464 INFO Presence event: quit -> tajnysmiral
-2026-10-08 11:45:07,020 INFO Mic grab recorded: Amy (72.6s)
-2026-10-08 11:46:17,569 INFO Mic grab recorded: The (70.5s)
-2026-10-08 11:47:27,995 INFO Presence event: join -> PDubss
-2026-10-08 11:47:28,020 INFO Presence event: quit -> PDubss
-2026-10-08 11:47:28,030 INFO Presence event: quit -> iTodd
-2026-10-08 11:48:38,462 INFO Mic grab recorded: bigchurch69 (140.9s)
-2026-10-08 11:48:38,483 INFO Moderation notice recorded: itscalledsofia blocked bigchurch69
-2026-10-08 11:48:38,485 INFO Moderation notice recorded: Players_Lounge1 unblocked itscalledsofia
-2026-10-08 11:48:38,490 INFO Presence event: join -> SacredSamantha
-2026-10-08 11:48:38,493 INFO Moderation notice recorded: Players_Lounge1 unblocked bigchurch69
-2026-10-08 11:48:38,500 INFO Presence event: quit -> SacredSamantha
-2026-10-08 11:51:08,626 INFO Mic grab recorded: Gani (76.0s)
-2026-10-08 11:51:08,654 INFO Presence event: join -> HKNYs
-2026-10-08 11:51:08,672 INFO Presence event: join -> Fnatic
-2026-10-08 11:51:08,687 INFO Presence event: join -> KocokiTiT
-2026-10-08 11:51:08,703 INFO Presence event: quit -> Fnatic
-2026-10-08 11:52:24,388 INFO Mic grab recorded: itscalledsofia (75.8s)
-2026-10-08 11:52:24,414 INFO Presence event: quit -> KocokiTiT
-2026-10-08 11:53:39,368 INFO Mic grab recorded: Gani (75.0s)
-2026-10-08 11:56:19,726 INFO Presence event: join -> DR3ADED
-2026-10-08 11:57:42,161 INFO Mic grab recorded: Pirate (242.8s)
+2026-10-08 14:19:00,539 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 14:19:00,540 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 14:19:00,544 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 14:19:00,544 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 14:19:00,546 INFO Presence event: quit -> Stonerwayne1000
+2026-10-08 14:19:00,555 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 14:19:00,556 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 14:19:00,560 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 14:19:00,561 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 14:19:00,569 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 14:19:00,569 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 14:19:00,577 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 14:19:00,577 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 14:19:00,588 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 14:19:00,588 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:16:07,203 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:16:07,204 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:16:07,213 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:16:07,213 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:16:07,223 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:16:07,223 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:16:07,226 INFO Presence event: quit -> Stonerwayne1000
+2026-10-08 15:16:07,235 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:16:07,235 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:16:07,243 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:16:07,243 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:16:07,256 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:16:07,256 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:16:07,270 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:16:07,270 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:16:07,288 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:16:07,289 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:18:11,515 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:18:11,515 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:18:11,525 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:18:11,526 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:18:11,530 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:18:11,530 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:18:11,533 INFO Presence event: quit -> Stonerwayne1000
+2026-10-08 15:18:11,539 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:18:11,539 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:18:11,546 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:18:11,546 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:18:11,561 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:18:11,561 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:18:11,574 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:18:11,574 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 15:18:11,593 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 15:18:11,593 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 16:35:43,712 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 16:35:43,712 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 16:35:43,716 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 16:35:43,716 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 16:35:43,721 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 16:35:43,721 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 16:35:43,722 INFO Presence event: quit -> Stonerwayne1000
+2026-10-08 16:35:43,728 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 16:35:43,728 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 16:35:43,732 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 16:35:43,732 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 16:35:43,739 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 16:35:43,739 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 16:35:43,745 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 16:35:43,745 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 16:35:43,755 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 16:35:43,755 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:25:15,849 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:25:15,849 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:25:15,853 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:25:15,853 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:25:15,858 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:25:15,858 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:25:15,863 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:25:15,863 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:25:15,864 INFO Presence event: quit -> Stonerwayne1000
+2026-10-08 17:25:15,869 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:25:15,869 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:25:15,873 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:25:15,873 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:25:15,881 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:25:15,881 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:25:15,887 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:25:15,887 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:25:15,897 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:25:15,897 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:27:11,329 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:27:11,329 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:27:11,334 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:27:11,335 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:27:11,339 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:27:11,340 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:27:11,347 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:27:11,347 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:27:11,349 INFO Presence event: quit -> Stonerwayne1000
+2026-10-08 17:27:11,355 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:27:11,355 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:27:11,362 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:27:11,362 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:27:11,372 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:27:11,372 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:27:11,378 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:27:11,378 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 17:27:11,388 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 17:27:11,388 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 19:47:14,867 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 19:47:14,867 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 19:47:14,871 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 19:47:14,871 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 19:47:14,876 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 19:47:14,876 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 19:47:14,899 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 19:47:14,899 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 19:47:14,901 INFO Presence event: quit -> Stonerwayne1000
+2026-10-08 19:47:14,906 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 19:47:14,906 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 19:47:14,912 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 19:47:14,912 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 19:47:14,920 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 19:47:14,920 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 19:47:14,929 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 19:47:14,929 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).
+2026-10-08 19:47:14,942 INFO Seeded 3 initial room users from User List (2359, 141, 2559, 1160).
+2026-10-08 19:47:14,942 INFO Connected to Camfrog via UI Automation (Chat=(1281, 170, 2355, 1160), Input=(1396, 1206, 2497, 1241), UserList=(2359, 141, 2559, 1160), Talk=(1291, 1169, 1361, 1195), ActiveSpeaker=(1506, 1174, 1548, 1190)).

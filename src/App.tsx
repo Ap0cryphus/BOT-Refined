@@ -31,7 +31,14 @@ import {
   Download,
   Check,
 } from 'lucide-react';
-import { FIXED_CONFIG_PY, FIXED_UI_AUTOMATION_PY } from './lib/pythonFiles';
+import {
+  FIXED_CONFIG_PY,
+  FIXED_UI_AUTOMATION_PY,
+  FIXED_CAMFROG_BOT_PY,
+  FIXED_ROOM_MONITOR_PY,
+  FIXED_ROOM_DATA_PROCESSOR_PY,
+  FIXED_TEST_BOT_PY,
+} from './lib/pythonFiles';
 
 type ActiveSection = 'monitor' | 'database' | 'uia' | 'rooms' | 'tests' | 'python_fix';
 type DbTableTab = 'users' | 'messages' | 'transcripts' | 'moderation' | 'grabs' | 'vault';
@@ -1638,20 +1645,146 @@ export function App() {
         {/* SECTION 6: FIXED LOCAL PYTHON FILES FOR C:\Users\newbe\AIBot */}
         {activeSection === 'python_fix' && (
           <div className="space-y-6">
-            <div className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-3">
-              <h2 className="text-lg font-semibold text-white">
-                Fixed Python Files for <code className="font-mono text-emerald-300">C:\Users\newbe\AIBot</code>
-              </h2>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Fixes <code className="text-amber-300">Camfrog UIA connection failed: You must specify some of process, handle, path or window search criteria</code> by enumerating desktop windows via{' '}
-                <code className="text-slate-100">Desktop(backend=&quot;uia&quot;).windows()</code> and attaching by window{' '}
-                <code className="text-slate-100">handle</code>, plus adds VB-Cable TTS broadcast (<code className="text-slate-100">CABLE Input</code> + holding Talk Button <code className="text-slate-100">[l=1291,t=1169,r=1361,b=1195]</code>) and filters the 3 ignored <code className="text-slate-100">ListItem(50007)</code> rectangles.
-              </p>
+            <div className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">
+                    Synchronized Python Pipeline Files for <code className="font-mono text-emerald-300">C:\Users\newbe\AIBot</code>
+                  </h2>
+                  <p className="text-xs text-slate-300 leading-relaxed mt-1">
+                    All 6 Python files below are 100% synchronized with your new Camfrog UIA coordinates: Chat Window <code className="text-slate-100">[1281,170,2355,1160]</code>, Compound <code className="text-slate-100">DataItem(50029)</code> <code className="text-slate-100">Join:/Quit:</code> rows at <code className="text-slate-100">[1332..2330]</code>, Chat Input <code className="text-slate-100">[1396,1206,2497,1241]</code>, User List <code className="text-slate-100">[2359,141,2559,1160]</code> (<code className="text-slate-100">Users (#)</code> / <code className="text-slate-100">MEMBERS # + LURKERS #</code> / row count minus 3 headers), Talk Button <code className="text-slate-100">[1291,1169,1361,1195]</code>, and Active Speaker <code className="text-slate-100">[1506,1174,1548,1190]</code> (<code className="text-slate-100">{BOT_USERNAME}</code> {MIC_CONFIRM_PERSIST_SECONDS}s gate).
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 self-start">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allFiles = [
+                        { name: 'config.py', code: FIXED_CONFIG_PY },
+                        { name: 'ui_automation.py', code: FIXED_UI_AUTOMATION_PY },
+                        { name: 'camfrog_bot.py', code: FIXED_CAMFROG_BOT_PY },
+                        { name: 'room_monitor.py', code: FIXED_ROOM_MONITOR_PY },
+                        { name: 'room_data_processor.py', code: FIXED_ROOM_DATA_PROCESSOR_PY },
+                        { name: 'test_bot.py', code: FIXED_TEST_BOT_PY },
+                      ];
+                      const psLines = [
+                        '# One-Click Clean & Install Script for C:\\Users\\newbe\\AIBot',
+                        '$targetDir = "C:\\Users\\newbe\\AIBot"',
+                        'New-Item -ItemType Directory -Force -Path $targetDir | Out-Null',
+                        'Set-Location $targetDir',
+                        'Write-Host "Cleaning old cache, legacy scripts, and stale database..." -ForegroundColor Cyan',
+                        'Remove-Item -Path "__pycache__" -Recurse -Force -ErrorAction SilentlyContinue',
+                        'Remove-Item -Path "camfrog_boy.py", "bot.py", "monitor_bot.py", "setup_bot.py", "start_bot_test.py", "test_camfrog_connection.py", "get_camfrog_window.py" -Force -ErrorAction SilentlyContinue',
+                        'Remove-Item -Path "data\\camfrog_bot.db" -Force -ErrorAction SilentlyContinue',
+                      ];
+                      for (const f of allFiles) {
+                        const b64 = window.btoa(unescape(encodeURIComponent(f.code)));
+                        psLines.push(
+                          `[System.IO.File]::WriteAllText((Join-Path $targetDir "${f.name}"), [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("${b64}")))`
+                        );
+                        psLines.push(`Write-Host "Wrote ${f.name}" -ForegroundColor Green`);
+                      }
+                      psLines.push('Write-Host "`nRunning unit tests (python test_bot.py)..." -ForegroundColor Cyan');
+                      psLines.push('python test_bot.py');
+                      psLines.push('Write-Host "`nAll 6 clean pipeline files are installed in C:\\Users\\newbe\\AIBot!" -ForegroundColor Green');
+                      handleDownloadPython('clean_and_install_aibot.ps1', psLines.join('\r\n'));
+                    }}
+                    className="px-4 py-2 text-xs font-mono bg-emerald-400 text-slate-950 font-semibold rounded-lg hover:bg-emerald-300 flex items-center gap-2 whitespace-nowrap"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download 1-Click Clean &amp; Install (.ps1)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allFiles = [
+                        { name: 'config.py', code: FIXED_CONFIG_PY },
+                        { name: 'ui_automation.py', code: FIXED_UI_AUTOMATION_PY },
+                        { name: 'camfrog_bot.py', code: FIXED_CAMFROG_BOT_PY },
+                        { name: 'room_monitor.py', code: FIXED_ROOM_MONITOR_PY },
+                        { name: 'room_data_processor.py', code: FIXED_ROOM_DATA_PROCESSOR_PY },
+                        { name: 'test_bot.py', code: FIXED_TEST_BOT_PY },
+                      ];
+                      allFiles.forEach((f, idx) => {
+                        setTimeout(() => handleDownloadPython(f.name, f.code), idx * 220);
+                      });
+                    }}
+                    className="px-4 py-2 text-xs font-mono bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 font-semibold rounded-lg flex items-center gap-2 whitespace-nowrap"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download All 6 .py Files
+                  </button>
+                </div>
+              </div>
+
+              {/* Direct Individual Download Strip */}
+              <div className="pt-2 border-t border-slate-800">
+                <div className="text-xs font-semibold text-slate-300 mb-2">
+                  Individual Python Files (Click any file to download directly into <code className="text-emerald-300">C:\Users\newbe\AIBot</code>):
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {[
+                    { name: 'config.py', desc: 'Calibrated coordinates & settings', code: FIXED_CONFIG_PY },
+                    { name: 'ui_automation.py', desc: 'UIA + OCR + DataItem(50029) + Users (#)', code: FIXED_UI_AUTOMATION_PY },
+                    { name: 'camfrog_bot.py', desc: 'Main bot + SQLite duration + TTS', code: FIXED_CAMFROG_BOT_PY },
+                    { name: 'room_monitor.py', desc: 'Live second-terminal room monitor', code: FIXED_ROOM_MONITOR_PY },
+                    { name: 'room_data_processor.py', desc: 'Multi-room trigger processor', code: FIXED_ROOM_DATA_PROCESSOR_PY },
+                    { name: 'test_bot.py', desc: '9 offline unit tests', code: FIXED_TEST_BOT_PY },
+                  ].map((item) => (
+                    <div
+                      key={item.name}
+                      className="flex items-center justify-between p-3 rounded-lg bg-slate-950 border border-slate-800"
+                    >
+                      <div className="min-w-0 pr-2">
+                        <div className="font-mono text-xs font-semibold text-white truncate">{item.name}</div>
+                        <div className="text-[11px] text-slate-400 truncate">{item.desc}</div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyPython(item.name, item.code)}
+                          className="px-2.5 py-1 text-xs font-mono bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded flex items-center gap-1"
+                        >
+                          {copiedFile === item.name ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          {copiedFile === item.name ? 'Copied' : 'Copy'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadPython(item.name, item.code)}
+                          className="px-2.5 py-1 text-xs font-mono bg-emerald-400 text-slate-950 font-semibold rounded hover:bg-emerald-300 flex items-center gap-1"
+                        >
+                          <Download className="w-3 h-3" />
+                          .py
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-4 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-300 space-y-1.5">
+                <div className="text-emerald-300 font-semibold">Clean Local Folder Checklist (C:\Users\newbe\AIBot):</div>
+                <div>
+                  1. Clean old pipeline files in Command Prompt:{' '}
+                  <code className="text-rose-300">
+                    rmdir /s /q __pycache__ &amp;&amp; del /q data\camfrog_bot.db camfrog_boy.py bot.py monitor_bot.py
+                  </code>
+                </div>
+                <div>
+                  2. Save the 6 downloaded <code className="text-white">.py</code> files directly into <code className="text-white">C:\Users\newbe\AIBot</code> (Make sure Windows didn&apos;t rename them <code className="text-amber-300">ui_automation (1).py</code> in your Downloads folder!).
+                </div>
+                <div>3. Verify all 9 unit tests pass: <code className="text-emerald-300">python test_bot.py</code></div>
+                <div>4. Start live room monitor: <code className="text-emerald-300">python room_monitor.py</code> (and main bot: <code className="text-emerald-300">python camfrog_bot.py</code>)</div>
+              </div>
             </div>
 
             {[
-              { name: 'ui_automation.py', code: FIXED_UI_AUTOMATION_PY },
               { name: 'config.py', code: FIXED_CONFIG_PY },
+              { name: 'ui_automation.py', code: FIXED_UI_AUTOMATION_PY },
+              { name: 'camfrog_bot.py', code: FIXED_CAMFROG_BOT_PY },
+              { name: 'room_monitor.py', code: FIXED_ROOM_MONITOR_PY },
+              { name: 'room_data_processor.py', code: FIXED_ROOM_DATA_PROCESSOR_PY },
+              { name: 'test_bot.py', code: FIXED_TEST_BOT_PY },
             ].map((file) => (
               <div key={file.name} className="border border-slate-800 rounded-xl bg-slate-900/50 p-6 space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">

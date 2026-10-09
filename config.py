@@ -16,8 +16,8 @@ IMAGE_CAPTURE_ENABLED = False
 
 # Window title can change dynamically when room topic changes.
 CAMFROG_WINDOW_TITLE_RE = r"(?i).*(Players__Lounge|Drama_Central|Camfrog|Video Chat Room).*"
-POLL_INTERVAL_SECONDS = 0.75
-UIA_CACHE_SECONDS = 0.30
+POLL_INTERVAL_SECONDS = 0.35
+UIA_CACHE_SECONDS = 0.15
 MAX_CHAT_MESSAGE_LENGTH = 425
 CHAT_HISTORY_LIMIT = 10
 

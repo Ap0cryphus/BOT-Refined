@@ -58,28 +58,32 @@ _PANEL_LABELS = {
     "page", "pageleft", "pageright", "pageup", "pagedown", "line", "lineup", "linedown",
     "scroll", "scrollbar", "vertical", "horizontal", "join", "quit", "left", "entered",
     "edit", "run", "file", "view", "help", "window", "selection", "terminal", "topic",
-    "register", "headeritem",
+    "register", "headeritem", "http", "https", "ftp", "mailto", "camfrogcdn",
+    "bers", "ers", "kers", "wing", "ewing", "iewing", "rkers", "mbers", "embers",
+    "the", "and", "for", "you", "are", "not", "yes", "nah", "lol", "lmao", "rofl",
+    "right", "pop", "conqueror", "princess", "pirate", "agent", "kaekae", "cd", "mr",
 }
 
-# Authoritative room user count header: "Users (25)", "USERS (#)", "USERS #", plus section counts "MEMBERS 14" + "LURKERS 11"
+# Authoritative room user count header: "Users (30)", "USERS (#)", plus the 3 section headers:
+# "YOU ARE VIEWING #", "MEMBERS #", "LURKERS #" (summed together for exact room count)
 _USERS_TOTAL_HEADER_RE = re.compile(
     r"(?<![A-Za-z_])users\s*(?:\(\s*(\d{1,3})\s*\)|:\s*(\d{1,3})|\[\s*(\d{1,3})\s*\]|\s+(\d{1,3})\b)",
     re.IGNORECASE,
 )
 _SECTION_COUNT_RE = re.compile(
-    r"(?<![A-Za-z_])(?P<section>members|lurkers?)\s*[:(\[\-]*\s*(?P<count>\d{1,3})\s*[)\]]?",
+    r"(?:(?P<section>you\s*are\s*viewing|(?:vie)?wing|(?:mem|em|m)?bers|(?:lur|r)?kers?)\s*[:(\[\-]*\s*(?P<count>\d{1,3})\s*[)\]]?)",
     re.IGNORECASE,
 )
 
-# Dynamic section headers in User List [l=2359, r=2559] such as "YOU ARE VIEWING 0", "MEMBERS 14", "LURKERS 11", "Users (25)"
+# Dynamic section headers in User List [l=2359, r=2559] such as "YOU ARE VIEWING 0", "MEMBERS 16", "LURKERS 14", "Users (30)"
 _USER_LIST_HEADER_RE = re.compile(
     r"^\s*[^A-Za-z0-9_]*(?:"
     r"you\s*are\s*viewing(?:\s*[:(\[\-]*\s*\d+\s*[)\]]?)?|"
     r"youareviewing\d*|"
-    r"viewing(?:\s*[:(\[\-]*\s*\d+\s*[)\]]?)?|"
-    r"lurkers?(?:\s*[:(\[\-]*\s*\d+\s*[)\]]?)?|"
+    r"(?:vie)?wing(?:\s*[:(\[\-]*\s*\d+\s*[)\]]?)?|"
+    r"(?:lur|r)?kers?(?:\s*[:(\[\-]*\s*\d+\s*[)\]]?)?|"
     r"users(?:\s*[:(\[\-]*\s*\d+\s*[)\]]?)?|"
-    r"members(?:\s*[:(\[\-]*\s*\d+\s*[)\]]?)?|"
+    r"(?:mem|em|m)?bers(?:\s*[:(\[\-]*\s*\d+\s*[)\]]?)?|"
     r"friends?(?:\s*[:(\[\-]*\s*\d+\s*[)\]]?)?|"
     r"top\s*gifters?(?:\s*[:(\[\-]*\s*\d+\s*[)\]]?)?|"
     r"gift\s*users?\s*\d*"
@@ -363,35 +367,31 @@ class CamfrogUIAutomation:
 
     @staticmethod
     def _extract_control_text(control: Any, info: Any) -> str:
-        """Extract text from UIA Name, window_text, LegacyIAccessible, ValuePattern, or TextPattern."""
-        parts: list[str] = []
+        """Fast COM text extraction: return immediately on info.name, only query legacy patterns for empty controls."""
+        try:
+            direct = info.name
+            if direct and isinstance(direct, str) and direct.strip():
+                return direct.strip()
+        except Exception:
+            pass
+        try:
+            rt = getattr(info, "rich_text", "")
+            if rt and isinstance(rt, str) and rt.strip():
+                return rt.strip()
+        except Exception:
+            pass
         for getter in (
-            lambda: info.name,
-            lambda: getattr(info, "rich_text", ""),
-            lambda: control.window_text(),
             lambda: getattr(control.iface_legacy_iaccessible, "CurrentName", ""),
             lambda: getattr(control.iface_legacy_iaccessible, "CurrentValue", ""),
-            lambda: getattr(control.iface_legacy_iaccessible, "CurrentDescription", ""),
             lambda: getattr(control.iface_value, "CurrentValue", ""),
-            lambda: control.iface_text.DocumentRange.GetText(-1),
         ):
             try:
                 val = getter()
                 if val and isinstance(val, str) and val.strip():
-                    cleaned = val.strip()
-                    if cleaned not in parts:
-                        parts.append(cleaned)
+                    return val.strip()
             except Exception:
                 continue
-        if not parts:
-            try:
-                texts = [t.strip() for t in control.texts() if isinstance(t, str) and t.strip()]
-                if texts:
-                    return "\n".join(texts)
-            except Exception:
-                pass
-            return ""
-        return max(parts, key=len)
+        return ""
 
     @staticmethod
     def _ocr_screen_rect(left: int, top: int, right: int, bottom: int, scale: int = 3) -> list[str]:
@@ -691,40 +691,44 @@ try {{
         return self.get_active_speaker(refresh=refresh) is None
 
     def _scan_users_header_and_list_from_uia(self, all_nodes: list[UIANode]) -> tuple[int | None, list[str]]:
-        """Extract both the 'Users (#)' count and username list from UIA nodes in the right User List column [l=2359,r=2559].
+        """Extract both the room user count and username list from UIA nodes in the right User List column [l=2359,r=2559].
 
-        Also counts the non-header rows inside [l=2359, t=141, r=2559, b=1160] (or subtracts the 3 section headers:
-        YOU ARE VIEWING, MEMBERS, LURKERS) when UIA exposes blank row items.
+        Sums the 3 ignored section headers ('YOU ARE VIEWING (#)', 'MEMBERS (#)', 'LURKERS (#)') or reads 'Users (#)',
+        and falls back to counting distinct list-row slots minus the 3 headers when UIA exposes blank row items.
         """
         ul_left, ul_top, ul_right, ul_bottom = USER_LIST_RECT  # (2359, 141, 2559, 1160)
         users_tab_count: int | None = None
+        viewing_count: int | None = None
         members_count: int | None = None
         lurkers_count: int | None = None
 
-        # 1. Scan the entire right-hand User List column (top >= 90 to include 'Users (25)' tab at y≈115)
+        # 1. Scan the entire right-hand User List column (top >= 90 to include 'Users (30)' tab at y≈115 and the 3 section headers)
         for node in all_nodes:
             if not node.name or node.left < ul_left - 8 or node.top < 90:
                 continue
             for raw_line in str(node.name).splitlines():
                 line = raw_line.strip()
-                if not line or len(line) > 40 or "_" in line:
+                if not line or len(line) > 42 or "_" in line:
                     continue
                 lower = line.lower()
-                if "viewing" in lower or "gift" in lower:
+                if "gift" in lower:
                     continue
-                m_users = _USERS_TOTAL_HEADER_RE.search(line)
-                if m_users and users_tab_count is None:
-                    raw_num = next((g for g in m_users.groups() if g is not None), None)
-                    if raw_num and 1 <= int(raw_num) <= 500:
-                        users_tab_count = int(raw_num)
+                if "viewing" not in lower:
+                    m_users = _USERS_TOTAL_HEADER_RE.search(line)
+                    if m_users and users_tab_count is None:
+                        raw_num = next((g for g in m_users.groups() if g is not None), None)
+                        if raw_num and 1 <= int(raw_num) <= 500:
+                            users_tab_count = int(raw_num)
                 m_sec = _SECTION_COUNT_RE.search(line)
                 if m_sec:
                     sec_name = m_sec.group("section").lower()
                     sec_val = int(m_sec.group("count"))
                     if 0 <= sec_val <= 500:
-                        if sec_name == "members" and members_count is None:
+                        if "wing" in sec_name and viewing_count is None:
+                            viewing_count = sec_val
+                        elif "ber" in sec_name and members_count is None:
                             members_count = sec_val
-                        elif sec_name.startswith("lurker") and lurkers_count is None:
+                        elif "ker" in sec_name and lurkers_count is None:
                             lurkers_count = sec_val
 
         # 2. Collect candidate nodes strictly in User List column [l=2355..2543, t=100..1160]
@@ -772,28 +776,38 @@ try {{
             if len(users) >= MAX_ROOM_USERS:
                 break
 
-        header_count = users_tab_count
-        if header_count is None and (members_count is not None or lurkers_count is not None):
-            header_count = (members_count or 0) + (lurkers_count or 0)
+        # Prefer summing the 3 ignored headers (YOU ARE VIEWING # + MEMBERS # + LURKERS #) or the 'Users (#)' tab header
+        section_sum = None
+        if members_count is not None or lurkers_count is not None:
+            section_sum = (viewing_count or 0) + (members_count or 0) + (lurkers_count or 0)
+
+        header_count = section_sum if (section_sum is not None and section_sum > 0) else users_tab_count
+        if header_count is None and viewing_count is not None and viewing_count > 0:
+            header_count = viewing_count
         if header_count is None and len(raw_row_rects) > 3:
             # Subtract the 3 section header rows (YOU ARE VIEWING, MEMBERS, LURKERS)
             header_count = len(raw_row_rects) - 3
 
         return header_count, users
 
-    def _get_ocr_userlist_fallback(self) -> tuple[int | None, list[str]]:
-        """Read 'Users (25)', 'MEMBERS #', 'LURKERS #', and visible usernames via Windows OCR on [l=2359, t=105, r=2544, b=1160]."""
+    def _get_ocr_userlist_fallback(self, *, header_only: bool = False) -> tuple[int | None, list[str]]:
+        """Read 'Users (30)' and the 3 section counts ('YOU ARE VIEWING #', 'MEMBERS #', 'LURKERS #') via Windows OCR."""
         now = time.monotonic()
-        if self._ocr_userlist_cache is not None and now - self._ocr_userlist_cache[0] < 6.0:
+        cache_ttl = 15.0 if header_only else 60.0
+        if self._ocr_userlist_cache is not None and now - self._ocr_userlist_cache[0] < cache_ttl:
             return self._ocr_userlist_cache[1], list(self._ocr_userlist_cache[2])
 
         ul_left, ul_top, ul_right, ul_bottom = USER_LIST_RECT  # (2359, 141, 2559, 1160)
-        # 1. Start at y=105 so we capture the 'Users (25)' tab header above y=141 as well as 'MEMBERS 14' and 'LURKERS 11'
+        # Single fast OCR pass on the right User List column [2359, 105, 2544, 1160]
         full_lines = self._ocr_screen_rect(ul_left, 105, ul_right - 15, ul_bottom, scale=2)
-        # 2. Scan the icon-free username text strip [2388..2520, 165..1160] (crops out left status/level badges and right cam/mic icons)
-        text_only_lines = self._ocr_screen_rect(ul_left + 29, ul_top + 22, ul_right - 38, ul_bottom, scale=3)
+        text_only_lines = (
+            []
+            if header_only
+            else self._ocr_screen_rect(ul_left + 29, ul_top + 22, ul_right - 38, ul_bottom, scale=3)
+        )
 
         users_tab_count: int | None = None
+        viewing_count: int | None = None
         members_count: int | None = None
         lurkers_count: int | None = None
         users: list[str] = []
@@ -804,21 +818,24 @@ try {{
             if not line:
                 continue
             lower = line.lower()
-            if "_" not in line and "viewing" not in lower and "gift" not in lower:
-                m_users = _USERS_TOTAL_HEADER_RE.search(line)
-                if m_users and users_tab_count is None:
-                    raw_num = next((g for g in m_users.groups() if g is not None), None)
-                    if raw_num and 1 <= int(raw_num) <= 500:
-                        users_tab_count = int(raw_num)
-                        continue
+            if "_" not in line and "gift" not in lower:
+                if "viewing" not in lower:
+                    m_users = _USERS_TOTAL_HEADER_RE.search(line)
+                    if m_users and users_tab_count is None:
+                        raw_num = next((g for g in m_users.groups() if g is not None), None)
+                        if raw_num and 1 <= int(raw_num) <= 500:
+                            users_tab_count = int(raw_num)
+                            continue
                 m_sec = _SECTION_COUNT_RE.search(line)
                 if m_sec:
                     sec_name = m_sec.group("section").lower()
                     sec_val = int(m_sec.group("count"))
                     if 0 <= sec_val <= 500:
-                        if sec_name == "members" and members_count is None:
+                        if "wing" in sec_name and viewing_count is None:
+                            viewing_count = sec_val
+                        elif "ber" in sec_name and members_count is None:
                             members_count = sec_val
-                        elif sec_name.startswith("lurker") and lurkers_count is None:
+                        elif "ker" in sec_name and lurkers_count is None:
                             lurkers_count = sec_val
                     continue
             if is_user_list_header(line):
@@ -833,9 +850,11 @@ try {{
                 if len(users) >= MAX_ROOM_USERS:
                     break
 
-        header_count = users_tab_count
-        if header_count is None and (members_count is not None or lurkers_count is not None):
-            header_count = (members_count or 0) + (lurkers_count or 0)
+        section_sum = None
+        if members_count is not None or lurkers_count is not None:
+            section_sum = (viewing_count or 0) + (members_count or 0) + (lurkers_count or 0)
+
+        header_count = section_sum if (section_sum is not None and section_sum > 0) else users_tab_count
         if header_count is None and users:
             header_count = len(users)
 
@@ -850,15 +869,17 @@ try {{
         """
         all_nodes = self.nodes(refresh=refresh)
         _, users = self._scan_users_header_and_list_from_uia(all_nodes)
-        if len(users) <= 1:
+        if len(users) <= 1 and self._ocr_userlist_cache is None:
             _, ocr_users = self._get_ocr_userlist_fallback()
             if len(ocr_users) > len(users):
                 users = ocr_users
+        elif len(users) <= 1 and self._ocr_userlist_cache is not None:
+            users = list(self._ocr_userlist_cache[2])
         return users
 
     def get_user_count(self, refresh: bool = False) -> int:
-        """Return the room user count by counting usernames in the User List (excluding YOU ARE VIEWING / MEMBERS / LURKERS)
-        or reading 'Users (#)' / (MEMBERS # + LURKERS #).
+        """Return the room user count rapidly by summing the 3 section headers (YOU ARE VIEWING # + MEMBERS # + LURKERS #),
+        reading 'Users (#)', or counting list rows minus the 3 headers.
         """
         all_nodes = self.nodes(refresh=refresh)
         header_count, users = self._scan_users_header_and_list_from_uia(all_nodes)
@@ -866,7 +887,7 @@ try {{
             return min(MAX_ROOM_USERS, header_count)
         if len(users) >= 2:
             return min(MAX_ROOM_USERS, len(users))
-        ocr_count, ocr_users = self._get_ocr_userlist_fallback()
+        ocr_count, ocr_users = self._get_ocr_userlist_fallback(header_only=True)
         best = max(header_count or 0, ocr_count or 0, len(users), len(ocr_users))
         return min(MAX_ROOM_USERS, best)
 
@@ -888,9 +909,15 @@ try {{
                 flat.append((ctrl_type, ln))
 
         events: list[dict[str, str]] = []
+        consumed_indices: set[int] = set()
         for index, (control_type, name) in enumerate(flat):
+            if index in consumed_indices:
+                continue
             lowered = name.lower().strip()
             if is_user_list_header(name):
+                continue
+            # Ignore browser/CEF URL strings so 'https://...' never becomes a fake user 'https'
+            if lowered.startswith(("http://", "https://", "ftp://", "mailto:")) or "camfrogcdn.com" in lowered:
                 continue
 
             # 1. Multi-node Join: / Quit: child Text(50020) sequence ('Quit:' followed by 'liketosquirt')
@@ -898,6 +925,7 @@ try {{
                 action = "join" if lowered == "join:" else "quit"
                 user = clean_username(flat[index + 1][1]) if index + 1 < len(flat) else ""
                 if user:
+                    consumed_indices.add(index + 1)
                     events.append({"kind": "presence", "action": action, "user": user, "text": "", "timestamp": ""})
                 continue
 
@@ -942,18 +970,20 @@ try {{
                     next_user = clean_username(flat[index + 1][1])
                     if next_user:
                         user = next_user
+                        consumed_indices.add(index + 1)
                         start_offset = 2
                 if not user:
                     continue
                 body = ""
-                for _, candidate in flat[index + start_offset:index + start_offset + 3]:
-                    cand_strip = candidate.strip()
+                for offset_idx in range(index + start_offset, min(len(flat), index + start_offset + 3)):
+                    cand_strip = flat[offset_idx][1].strip().lstrip(":").strip()
                     if (
                         cand_strip
                         and not _CLOCK_RE.fullmatch(cand_strip)
                         and cand_strip.lower() not in {"join:", "quit:", "left:"}
                     ):
                         body = cand_strip
+                        consumed_indices.add(offset_idx)
                         break
                 if body:
                     events.append({"kind": "message", "user": user, "text": body, "timestamp": name.strip()})
@@ -962,15 +992,22 @@ try {{
             # 6. Single-line "[6:36 PM] User: message" or "User: message"
             inline_match = _INLINE_CHAT_RE.match(name)
             if inline_match:
-                user = clean_username(inline_match.group("user"))
+                raw_user = inline_match.group("user").strip()
+                user = clean_username(raw_user)
                 body = (inline_match.group("body") or "").strip()
                 ts = (inline_match.group("ts1") or inline_match.group("ts2") or "").strip()
-                if user and body:
+                if (
+                    user
+                    and user.lower() == raw_user.lower()
+                    and body
+                    and not body.startswith("//")
+                    and not _CLOCK_RE.fullmatch(body.rstrip(":").strip())
+                ):
                     events.append({"kind": "message", "user": user, "text": body, "timestamp": ts})
                 continue
 
-            # 7. Multi-node Camfrog CEF chat without timestamp: [Text(username), Text(colon or message)]
-            # Avoid consuming presence usernames that immediately follow 'Join:' / 'Quit:'
+            # 7. Multi-node Camfrog CEF chat without timestamp: [Text(username), Text(":" or ": message")]
+            # Require an explicit ':' separator so wrapped chat body lines never misparse as new senders!
             prev_lower = flat[index - 1][1].lower().strip() if index > 0 else ""
             if (
                 control_type in {"Text", "Hyperlink"}
@@ -982,11 +1019,19 @@ try {{
                 next_text = flat[index + 1][1].strip()
                 if next_text == ":" and index + 2 < len(flat):
                     body = flat[index + 2][1].strip()
-                    if body and body.lower() not in {"join:", "quit:", "left:"} and not _MULTI_PRESENCE_PAIR_RE.search(body):
+                    if (
+                        body
+                        and body != ":"
+                        and not _CLOCK_RE.fullmatch(body)
+                        and body.lower() not in {"join:", "quit:", "left:"}
+                        and not _MULTI_PRESENCE_PAIR_RE.search(body)
+                    ):
+                        consumed_indices.update({index + 1, index + 2})
                         events.append({"kind": "message", "user": user, "text": body, "timestamp": ""})
-                elif next_text.startswith(":"):
+                elif next_text.startswith(":") and len(next_text) > 1:
                     body = next_text.lstrip(":").strip()
-                    if body:
+                    if body and not _CLOCK_RE.fullmatch(body):
+                        consumed_indices.add(index + 1)
                         events.append({"kind": "message", "user": user, "text": body, "timestamp": ""})
 
         return events
@@ -1090,32 +1135,38 @@ try {{
         if not cleaned:
             return False
 
-        node = self._find_chat_input(self.nodes(refresh=True))
+        node = self._find_chat_input(self.nodes(refresh=False))
         il, it, ir, ib = self._rect(node) or CHAT_INPUT_RECT
         cx, cy = (il + ir) // 2, (it + ib) // 2  # (1946, 1223)
 
         try:
+            # 1. Click inside the Chat Txt Field Pane(50033) at (1946, 1223) so CEF/Qt activates the text input cursor
             if uia_click is not None:
                 uia_click(coords=(cx, cy))
-                time.sleep(0.08)
+                time.sleep(0.06)
 
-            if node is not None and node.control is not None:
+            # 2. Only call set_edit_text if the control is a native Win32/UIA Edit box
+            if node is not None and node.control_type == "Edit" and node.control is not None:
                 try:
                     node.control.set_edit_text(cleaned)
-                    node.control.type_keys("{ENTER}", set_foreground=False)
+                    if uia_send_keys is not None:
+                        uia_send_keys("{ENTER}", pause=0.01)
+                    else:
+                        node.control.type_keys("{ENTER}", set_foreground=False)
                     return True
                 except Exception:
-                    try:
-                        node.control.type_keys(cleaned, with_spaces=True, set_foreground=False)
-                        node.control.type_keys("{ENTER}", set_foreground=False)
-                        return True
-                    except Exception:
-                        pass
+                    pass
 
+            # 3. For Camfrog's Pane(50033) chat input [1396,1206,2497,1241], send keystrokes directly after clicking
             if uia_send_keys is not None:
                 escaped = re.sub(r"([+^%~(){}])", r"{\1}", cleaned)
-                uia_send_keys(escaped, with_spaces=True, pause=0.01)
-                uia_send_keys("{ENTER}", pause=0.02)
+                uia_send_keys(escaped, with_spaces=True, pause=0.005)
+                uia_send_keys("{ENTER}", pause=0.01)
+                return True
+
+            if node is not None and node.control is not None:
+                node.control.type_keys(cleaned, with_spaces=True, set_foreground=False)
+                node.control.type_keys("{ENTER}", set_foreground=False)
                 return True
 
             self.last_error = "Camfrog chat input could not receive keystrokes."
