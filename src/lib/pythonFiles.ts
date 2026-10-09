@@ -18,8 +18,8 @@ IMAGE_CAPTURE_ENABLED = False
 
 # Window title can change dynamically when room topic changes.
 CAMFROG_WINDOW_TITLE_RE = r"(?i).*(Players__Lounge|Drama_Central|Camfrog|Video Chat Room).*"
-POLL_INTERVAL_SECONDS = 0.35
-UIA_CACHE_SECONDS = 0.15
+POLL_INTERVAL_SECONDS = 0.10
+UIA_CACHE_SECONDS = 0.08
 MAX_CHAT_MESSAGE_LENGTH = 425
 CHAT_HISTORY_LIMIT = 10
 
@@ -460,30 +460,23 @@ class CamfrogUIAutomation:
 
     @staticmethod
     def _extract_control_text(control: Any, info: Any) -> str:
-        """Fast COM text extraction: return immediately on info.name, only query legacy patterns for empty controls."""
+        """Ultra-fast COM text read: only read info.name (and rich_text if present) to avoid 45-second COM exception storms."""
         try:
             direct = info.name
-            if direct and isinstance(direct, str) and direct.strip():
-                return direct.strip()
+            if direct and isinstance(direct, str):
+                stripped = direct.strip()
+                if stripped:
+                    return stripped
         except Exception:
             pass
         try:
             rt = getattr(info, "rich_text", "")
-            if rt and isinstance(rt, str) and rt.strip():
-                return rt.strip()
+            if rt and isinstance(rt, str):
+                stripped = rt.strip()
+                if stripped:
+                    return stripped
         except Exception:
             pass
-        for getter in (
-            lambda: getattr(control.iface_legacy_iaccessible, "CurrentName", ""),
-            lambda: getattr(control.iface_legacy_iaccessible, "CurrentValue", ""),
-            lambda: getattr(control.iface_value, "CurrentValue", ""),
-        ):
-            try:
-                val = getter()
-                if val and isinstance(val, str) and val.strip():
-                    return val.strip()
-            except Exception:
-                continue
         return ""
 
     @staticmethod
@@ -579,16 +572,24 @@ try {{
     def _node_from_control(self, control: Any) -> UIANode | None:
         try:
             info = control.element_info
-            rect = control.rectangle()
+            ctype = info.control_type or ""
+            # Skip purely decorative Image/Separator/Thumb/ScrollBar/TitleBar controls for speed
+            if ctype in {"Image", "Separator", "Thumb", "ScrollBar", "TitleBar", "MenuBar", "MenuItem", "ToolTip"}:
+                return None
+            rect = info.rectangle
+            left, top, right, bottom = int(rect.left), int(rect.top), int(rect.right), int(rect.bottom)
+            # Skip invisible / offscreen controls or video grid tiles on the left side (< 1275)
+            if right <= left or bottom <= top or right < 1275:
+                return None
             text = self._extract_control_text(control, info)
             return UIANode(
-                control_type=(info.control_type or ""),
+                control_type=ctype,
                 name=text,
                 class_name=(info.class_name or ""),
-                left=int(rect.left),
-                top=int(rect.top),
-                right=int(rect.right),
-                bottom=int(rect.bottom),
+                left=left,
+                top=top,
+                right=right,
+                bottom=bottom,
                 control=control,
             )
         except Exception:
@@ -1210,14 +1211,19 @@ try {{
             events = self._parse_text_tokens_into_events([(n.control_type, n.name) for n in fallback_nodes])
 
         unique: list[dict[str, str]] = []
-        seen: set[tuple[str, str, str, str]] = set()
-        for event in events:
+        for idx, event in enumerate(events):
             if event.get("user"):
                 self._known_users.add(event["user"])
-            key = (event["kind"], event.get("action", ""), event["user"].lower(), event["text"])
-            if key not in seen:
-                seen.add(key)
-                unique.append(event)
+            # Collapse only adjacent identical duplicates produced by parent+child UIA nodes on the same row
+            if (
+                unique
+                and unique[-1]["kind"] == event["kind"]
+                and unique[-1].get("action", "") == event.get("action", "")
+                and unique[-1]["user"].lower() == event["user"].lower()
+                and unique[-1]["text"] == event["text"]
+            ):
+                continue
+            unique.append(event)
         return unique[-limit:]
 
     def send_chat_message(self, message: str, dry_run: bool = False) -> bool:
@@ -1743,7 +1749,9 @@ class CamfrogStore:
         if not username or self.is_suppressed(username):
             return
         observed_at = now_iso()
-        key = message_key(username, body, room_time)
+        # Include observed_at when room_time is empty on live messages so repeated lines ('g', '!triggers') are all recorded
+        effective_time = room_time or (f"{observed_at}:{time.monotonic():.4f}" if mark_active else "")
+        key = message_key(username, body, effective_time)
         active_val = 1 if mark_active else 0
         joined_val = observed_at if mark_active else ""
         with self._session() as db:
@@ -2338,7 +2346,9 @@ class RoomMonitor:
         self.ui_automation = self.bot.ui_automation
         self.store = self.bot.store
         self.running = False
-        self.last_events: set[str] = set()
+        self._last_snapshot_sigs: list[str] = []
+        self._last_status_print_mono: float = 0.0
+        self._last_speaker: str | None = "__init__"
 
     def start_monitoring(self) -> bool:
         print("=== CAMFROG ROOM MONITOR + BOT TRIGGER PIPELINE ===")
@@ -2348,9 +2358,8 @@ class RoomMonitor:
             return False
 
         # Sync initial scrollback events so we only display and trigger on new live events
-        for event in self.ui_automation.get_chat_events():
-            event_key = f"{event.get('kind', '')}:{event.get('user', '')}:{event.get('text', '')}:{event.get('timestamp', '')}"
-            self.last_events.add(event_key)
+        initial_events = self.ui_automation.get_chat_events()
+        self._last_snapshot_sigs = [self._event_sig(e) for e in initial_events]
 
         print("Connected to Camfrog successfully!")
         print(f"Locations: {json.dumps(self.ui_automation.layout_locations())}")
@@ -2362,7 +2371,7 @@ class RoomMonitor:
             f"{', '.join(initial_users[:15])}"
         )
         print(
-            f"Fast polling active (every {POLL_INTERVAL_SECONDS}s) + live bot triggers enabled "
+            f"Ultra-fast polling active (every {POLL_INTERVAL_SECONDS:.2f}s) + live bot triggers enabled "
             f"(!triggers, !who is, !info on, !say, etc.) -> Chat Input {CHAT_INPUT_RECT}.\\n"
         )
         self.running = True
@@ -2370,16 +2379,43 @@ class RoomMonitor:
         try:
             while self.running:
                 self._display_room_info()
-                time.sleep(max(0.25, POLL_INTERVAL_SECONDS))
+                time.sleep(max(0.05, POLL_INTERVAL_SECONDS))
         except KeyboardInterrupt:
             print("\\nMonitoring stopped by user.")
             self.running = False
 
         return True
 
+    @staticmethod
+    def _event_sig(event: dict[str, str]) -> str:
+        return f"{event.get('kind', '')}:{event.get('action', '')}:{event.get('user', '')}:{event.get('text', '')}:{event.get('timestamp', '')}"
+
+    @classmethod
+    def _diff_new_tail_events(cls, prev_sigs: list[str], curr_events: list[dict[str, str]]) -> list[dict[str, str]]:
+        """Return only the newly appended events at the bottom of the chat window (even if identical to an older line)."""
+        curr_sigs = [cls._event_sig(e) for e in curr_events]
+        if not prev_sigs:
+            return curr_events
+        if curr_sigs == prev_sigs:
+            return []
+        # Find the longest suffix of prev_sigs (or slice of prev_sigs) that matches a prefix of the tail of curr_sigs
+        max_overlap = min(len(prev_sigs), len(curr_sigs))
+        for k in range(max_overlap, 0, -1):
+            if prev_sigs[-k:] == curr_sigs[:k]:
+                return curr_events[k:]
+        # Also check if curr_sigs contains the last 3 items of prev_sigs near the end
+        anchor_len = min(3, len(prev_sigs))
+        anchor = prev_sigs[-anchor_len:]
+        for idx in range(len(curr_sigs) - anchor_len, -1, -1):
+            if curr_sigs[idx:idx + anchor_len] == anchor:
+                return curr_events[idx + anchor_len:]
+        # Fallback: return any event whose signature was not in prev_sigs
+        prev_set = set(prev_sigs)
+        return [e for e, s in zip(curr_events, curr_sigs) if s not in prev_set]
+
     def _display_room_info(self) -> None:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # Force a fresh UIA snapshot each cycle so Active Speaker, USERS (#), and Chat are up to date
+        # Force a fresh UIA snapshot each cycle (now ~0.08s without slow COM legacy probes)
         self.ui_automation.nodes(refresh=True)
         self.bot._track_active_speaker()
         current_room = self.ui_automation.get_current_room()
@@ -2388,18 +2424,27 @@ class RoomMonitor:
         users_header_count = self.ui_automation.get_user_count(refresh=False)
 
         events = self.ui_automation.get_chat_events()
-        new_events = []
-        for event in events:
-            event_key = f"{event.get('kind', '')}:{event.get('user', '')}:{event.get('text', '')}:{event.get('timestamp', '')}"
-            if event_key not in self.last_events:
-                self.last_events.add(event_key)
-                new_events.append(event)
-                if event.get("kind") == "presence":
-                    self.store.record_presence(event.get("user", ""), event.get("action", "join"), event_key)
-                elif event.get("kind") == "message":
-                    self.bot._handle_message(event.get("user", ""), event.get("text", ""), event.get("timestamp", ""))
+        new_events = self._diff_new_tail_events(self._last_snapshot_sigs, events)
+        if events:
+            self._last_snapshot_sigs = [self._event_sig(e) for e in events]
+
+        for event in new_events:
+            event_key = f"{self._event_sig(event)}:{time.monotonic():.3f}"
+            if event.get("kind") == "presence":
+                self.store.record_presence(event.get("user", ""), event.get("action", "join"), event_key)
+            elif event.get("kind") == "message":
+                self.bot._handle_message(event.get("user", ""), event.get("text", ""), event.get("timestamp", ""))
 
         self.bot._run_scheduled_disses()
+
+        now_mono = time.monotonic()
+        speaker_changed = speaker != self._last_speaker
+        # Print immediately when new chat/presence events arrive or active speaker changes, or every 2.0s as a heartbeat
+        if not new_events and not speaker_changed and (now_mono - self._last_status_print_mono) < 2.0:
+            return
+
+        self._last_status_print_mono = now_mono
+        self._last_speaker = speaker
 
         # Prefer the sum of the 3 User List headers (YOU ARE VIEWING + MEMBERS + LURKERS) / Users (#) count
         effective_count = users_header_count if users_header_count > 0 else (len(users) or self.store.active_user_count())
@@ -2411,7 +2456,7 @@ class RoomMonitor:
 
         if new_events:
             print(f"  New Events ({len(new_events)}) from Chat Window {CHAT_WINDOW_RECT}:")
-            for event in new_events[-10:]:
+            for event in new_events[-15:]:
                 event_type = event.get("kind", "unknown")
                 user = event.get("user", "unknown")
                 text = event.get("text", "")

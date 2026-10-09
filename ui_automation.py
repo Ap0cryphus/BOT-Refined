@@ -367,30 +367,23 @@ class CamfrogUIAutomation:
 
     @staticmethod
     def _extract_control_text(control: Any, info: Any) -> str:
-        """Fast COM text extraction: return immediately on info.name, only query legacy patterns for empty controls."""
+        """Ultra-fast COM text read: only read info.name (and rich_text if present) to avoid 45-second COM exception storms."""
         try:
             direct = info.name
-            if direct and isinstance(direct, str) and direct.strip():
-                return direct.strip()
+            if direct and isinstance(direct, str):
+                stripped = direct.strip()
+                if stripped:
+                    return stripped
         except Exception:
             pass
         try:
             rt = getattr(info, "rich_text", "")
-            if rt and isinstance(rt, str) and rt.strip():
-                return rt.strip()
+            if rt and isinstance(rt, str):
+                stripped = rt.strip()
+                if stripped:
+                    return stripped
         except Exception:
             pass
-        for getter in (
-            lambda: getattr(control.iface_legacy_iaccessible, "CurrentName", ""),
-            lambda: getattr(control.iface_legacy_iaccessible, "CurrentValue", ""),
-            lambda: getattr(control.iface_value, "CurrentValue", ""),
-        ):
-            try:
-                val = getter()
-                if val and isinstance(val, str) and val.strip():
-                    return val.strip()
-            except Exception:
-                continue
         return ""
 
     @staticmethod
@@ -486,16 +479,24 @@ try {{
     def _node_from_control(self, control: Any) -> UIANode | None:
         try:
             info = control.element_info
-            rect = control.rectangle()
+            ctype = info.control_type or ""
+            # Skip purely decorative Image/Separator/Thumb/ScrollBar/TitleBar controls for speed
+            if ctype in {"Image", "Separator", "Thumb", "ScrollBar", "TitleBar", "MenuBar", "MenuItem", "ToolTip"}:
+                return None
+            rect = info.rectangle
+            left, top, right, bottom = int(rect.left), int(rect.top), int(rect.right), int(rect.bottom)
+            # Skip invisible / offscreen controls or video grid tiles on the left side (< 1275)
+            if right <= left or bottom <= top or right < 1275:
+                return None
             text = self._extract_control_text(control, info)
             return UIANode(
-                control_type=(info.control_type or ""),
+                control_type=ctype,
                 name=text,
                 class_name=(info.class_name or ""),
-                left=int(rect.left),
-                top=int(rect.top),
-                right=int(rect.right),
-                bottom=int(rect.bottom),
+                left=left,
+                top=top,
+                right=right,
+                bottom=bottom,
                 control=control,
             )
         except Exception:
@@ -1117,14 +1118,19 @@ try {{
             events = self._parse_text_tokens_into_events([(n.control_type, n.name) for n in fallback_nodes])
 
         unique: list[dict[str, str]] = []
-        seen: set[tuple[str, str, str, str]] = set()
-        for event in events:
+        for idx, event in enumerate(events):
             if event.get("user"):
                 self._known_users.add(event["user"])
-            key = (event["kind"], event.get("action", ""), event["user"].lower(), event["text"])
-            if key not in seen:
-                seen.add(key)
-                unique.append(event)
+            # Collapse only adjacent identical duplicates produced by parent+child UIA nodes on the same row
+            if (
+                unique
+                and unique[-1]["kind"] == event["kind"]
+                and unique[-1].get("action", "") == event.get("action", "")
+                and unique[-1]["user"].lower() == event["user"].lower()
+                and unique[-1]["text"] == event["text"]
+            ):
+                continue
+            unique.append(event)
         return unique[-limit:]
 
     def send_chat_message(self, message: str, dry_run: bool = False) -> bool:

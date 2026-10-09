@@ -295,7 +295,9 @@ class CamfrogStore:
         if not username or self.is_suppressed(username):
             return
         observed_at = now_iso()
-        key = message_key(username, body, room_time)
+        # Include observed_at when room_time is empty on live messages so repeated lines ('g', '!triggers') are all recorded
+        effective_time = room_time or (f"{observed_at}:{time.monotonic():.4f}" if mark_active else "")
+        key = message_key(username, body, effective_time)
         active_val = 1 if mark_active else 0
         joined_val = observed_at if mark_active else ""
         with self._session() as db:

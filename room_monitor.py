@@ -38,7 +38,9 @@ class RoomMonitor:
         self.ui_automation = self.bot.ui_automation
         self.store = self.bot.store
         self.running = False
-        self.last_events: set[str] = set()
+        self._last_snapshot_sigs: list[str] = []
+        self._last_status_print_mono: float = 0.0
+        self._last_speaker: str | None = "__init__"
 
     def start_monitoring(self) -> bool:
         print("=== CAMFROG ROOM MONITOR + BOT TRIGGER PIPELINE ===")
@@ -48,9 +50,8 @@ class RoomMonitor:
             return False
 
         # Sync initial scrollback events so we only display and trigger on new live events
-        for event in self.ui_automation.get_chat_events():
-            event_key = f"{event.get('kind', '')}:{event.get('user', '')}:{event.get('text', '')}:{event.get('timestamp', '')}"
-            self.last_events.add(event_key)
+        initial_events = self.ui_automation.get_chat_events()
+        self._last_snapshot_sigs = [self._event_sig(e) for e in initial_events]
 
         print("Connected to Camfrog successfully!")
         print(f"Locations: {json.dumps(self.ui_automation.layout_locations())}")
@@ -62,7 +63,7 @@ class RoomMonitor:
             f"{', '.join(initial_users[:15])}"
         )
         print(
-            f"Fast polling active (every {POLL_INTERVAL_SECONDS}s) + live bot triggers enabled "
+            f"Ultra-fast polling active (every {POLL_INTERVAL_SECONDS:.2f}s) + live bot triggers enabled "
             f"(!triggers, !who is, !info on, !say, etc.) -> Chat Input {CHAT_INPUT_RECT}.\n"
         )
         self.running = True
@@ -70,16 +71,43 @@ class RoomMonitor:
         try:
             while self.running:
                 self._display_room_info()
-                time.sleep(max(0.25, POLL_INTERVAL_SECONDS))
+                time.sleep(max(0.05, POLL_INTERVAL_SECONDS))
         except KeyboardInterrupt:
             print("\nMonitoring stopped by user.")
             self.running = False
 
         return True
 
+    @staticmethod
+    def _event_sig(event: dict[str, str]) -> str:
+        return f"{event.get('kind', '')}:{event.get('action', '')}:{event.get('user', '')}:{event.get('text', '')}:{event.get('timestamp', '')}"
+
+    @classmethod
+    def _diff_new_tail_events(cls, prev_sigs: list[str], curr_events: list[dict[str, str]]) -> list[dict[str, str]]:
+        """Return only the newly appended events at the bottom of the chat window (even if identical to an older line)."""
+        curr_sigs = [cls._event_sig(e) for e in curr_events]
+        if not prev_sigs:
+            return curr_events
+        if curr_sigs == prev_sigs:
+            return []
+        # Find the longest suffix of prev_sigs (or slice of prev_sigs) that matches a prefix of the tail of curr_sigs
+        max_overlap = min(len(prev_sigs), len(curr_sigs))
+        for k in range(max_overlap, 0, -1):
+            if prev_sigs[-k:] == curr_sigs[:k]:
+                return curr_events[k:]
+        # Also check if curr_sigs contains the last 3 items of prev_sigs near the end
+        anchor_len = min(3, len(prev_sigs))
+        anchor = prev_sigs[-anchor_len:]
+        for idx in range(len(curr_sigs) - anchor_len, -1, -1):
+            if curr_sigs[idx:idx + anchor_len] == anchor:
+                return curr_events[idx + anchor_len:]
+        # Fallback: return any event whose signature was not in prev_sigs
+        prev_set = set(prev_sigs)
+        return [e for e, s in zip(curr_events, curr_sigs) if s not in prev_set]
+
     def _display_room_info(self) -> None:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # Force a fresh UIA snapshot each cycle so Active Speaker, USERS (#), and Chat are up to date
+        # Force a fresh UIA snapshot each cycle (now ~0.08s without slow COM legacy probes)
         self.ui_automation.nodes(refresh=True)
         self.bot._track_active_speaker()
         current_room = self.ui_automation.get_current_room()
@@ -88,18 +116,27 @@ class RoomMonitor:
         users_header_count = self.ui_automation.get_user_count(refresh=False)
 
         events = self.ui_automation.get_chat_events()
-        new_events = []
-        for event in events:
-            event_key = f"{event.get('kind', '')}:{event.get('user', '')}:{event.get('text', '')}:{event.get('timestamp', '')}"
-            if event_key not in self.last_events:
-                self.last_events.add(event_key)
-                new_events.append(event)
-                if event.get("kind") == "presence":
-                    self.store.record_presence(event.get("user", ""), event.get("action", "join"), event_key)
-                elif event.get("kind") == "message":
-                    self.bot._handle_message(event.get("user", ""), event.get("text", ""), event.get("timestamp", ""))
+        new_events = self._diff_new_tail_events(self._last_snapshot_sigs, events)
+        if events:
+            self._last_snapshot_sigs = [self._event_sig(e) for e in events]
+
+        for event in new_events:
+            event_key = f"{self._event_sig(event)}:{time.monotonic():.3f}"
+            if event.get("kind") == "presence":
+                self.store.record_presence(event.get("user", ""), event.get("action", "join"), event_key)
+            elif event.get("kind") == "message":
+                self.bot._handle_message(event.get("user", ""), event.get("text", ""), event.get("timestamp", ""))
 
         self.bot._run_scheduled_disses()
+
+        now_mono = time.monotonic()
+        speaker_changed = speaker != self._last_speaker
+        # Print immediately when new chat/presence events arrive or active speaker changes, or every 2.0s as a heartbeat
+        if not new_events and not speaker_changed and (now_mono - self._last_status_print_mono) < 2.0:
+            return
+
+        self._last_status_print_mono = now_mono
+        self._last_speaker = speaker
 
         # Prefer the sum of the 3 User List headers (YOU ARE VIEWING + MEMBERS + LURKERS) / Users (#) count
         effective_count = users_header_count if users_header_count > 0 else (len(users) or self.store.active_user_count())
@@ -111,7 +148,7 @@ class RoomMonitor:
 
         if new_events:
             print(f"  New Events ({len(new_events)}) from Chat Window {CHAT_WINDOW_RECT}:")
-            for event in new_events[-10:]:
+            for event in new_events[-15:]:
                 event_type = event.get("kind", "unknown")
                 user = event.get("user", "unknown")
                 text = event.get("text", "")
