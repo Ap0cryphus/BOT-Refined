@@ -483,12 +483,18 @@ try {{
             # Skip purely decorative Image/Separator/Thumb/ScrollBar/TitleBar controls for speed
             if ctype in {"Image", "Separator", "Thumb", "ScrollBar", "TitleBar", "MenuBar", "MenuItem", "ToolTip"}:
                 return None
+            # Read info.name FIRST before querying info.rectangle!
+            # 90% of Camfrog CEF/Qt descendants have an empty name; only unnamed Button/Pane/Edit controls
+            # (like the Active Speaker button at [1506,1174,1548,1190] or Chat Input at [1396,1206,2497,1241])
+            # need their rectangle inspected when name is empty.
+            text = self._extract_control_text(control, info)
+            if not text and ctype not in {"Button", "Pane", "Edit", "Document"}:
+                return None
             rect = info.rectangle
             left, top, right, bottom = int(rect.left), int(rect.top), int(rect.right), int(rect.bottom)
             # Skip invisible / offscreen controls or video grid tiles on the left side (< 1275)
             if right <= left or bottom <= top or right < 1275:
                 return None
-            text = self._extract_control_text(control, info)
             return UIANode(
                 control_type=ctype,
                 name=text,

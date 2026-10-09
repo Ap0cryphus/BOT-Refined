@@ -49,12 +49,11 @@ class RoomMonitor:
             print(f"ERROR: Could not connect to Camfrog: {self.ui_automation.last_error}")
             return False
 
-        # Sync initial scrollback events so we only display and trigger on new live events
+        # Reuse the cached UIA snapshot from initialize() so startup is instant
         initial_events = self.ui_automation.get_chat_events()
         self._last_snapshot_sigs = [self._event_sig(e) for e in initial_events]
 
         print("Connected to Camfrog successfully!")
-        print(f"Locations: {json.dumps(self.ui_automation.layout_locations())}")
         initial_users = self.bot.initial_users
         user_count = self.ui_automation.get_user_count(refresh=False)
         print(
