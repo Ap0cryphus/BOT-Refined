@@ -1,0 +1,2 @@
+data/models/kokoro/kokoro-v1.0-fp16.onnx filter=lfs diff=lfs merge=lfs -text
+data/models/kokoro/kokoro-v1.0.onnx filter=lfs diff=lfs merge=lfs -text

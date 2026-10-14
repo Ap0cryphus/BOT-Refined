@@ -1,0 +1,29 @@
+{
+  "window_rect": [
+    1273,
+    0,
+    2567,
+    1399
+  ],
+  "chat_input_rect": [
+    1396,
+    1206,
+    2497,
+    1241
+  ],
+  "chat_input_screen_pt": [
+    1536,
+    1223
+  ],
+  "talk_button_rect": [
+    1291,
+    1169,
+    1361,
+    1195
+  ],
+  "talk_button_screen_pt": [
+    1326,
+    1182
+  ],
+  "calibrated_at": "2026-10-14 02:47:34"
+}

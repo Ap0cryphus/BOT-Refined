@@ -1,0 +1,26 @@
+pywinauto>=0.6.8
+uiautomation>=2.0.18; sys_platform == 'win32'
+comtypes>=1.2.0
+pywin32>=306; sys_platform == 'win32'
+sounddevice>=0.4.6
+SpeechRecognition>=3.10.0
+numpy>=1.24.0
+opencv-python>=4.8.0
+PyAutoGUI>=0.9.54
+keyboard>=0.13.5
+Pillow>=10.0.0
+edge-tts>=6.1.12
+miniaudio>=1.59
+faster-whisper>=1.0.0
+# --- Optional GPU acceleration (AMD-first) & Coqui XTTS v2 voice cloning stack ---
+# These are installed best-effort by setup_env.py; the bot runs on CPU/Edge-TTS without them.
+onnxruntime>=1.17.0
+onnxruntime-directml>=1.17.0; sys_platform == 'win32'
+torch-directml>=0.2.0; sys_platform == 'win32'
+TTS>=0.22.0
+whisperx>=3.1.1
+kokoro-onnx>=0.4.0
+misaki>=0.9.0
+soundfile>=0.12.0
+espeak-ng>=0.1.0
+# Local GPU TTS assets (Kokoro ONNX ~300MB + XTTS-v2 ~2GB) download once to data/models/.

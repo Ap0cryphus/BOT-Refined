@@ -1,0 +1,30 @@
+{
+  "C:\\Users\\newbe\\AppData\\Local\\Programs\\Python\\Python311\\python.exe::TTS>=0.22.0": {
+    "ok": true,
+    "attempted_at": 1791954031.8051798
+  },
+  "C:\\Users\\newbe\\AppData\\Local\\Programs\\Python\\Python311\\python.exe::whisperx>=3.1.1": {
+    "ok": true,
+    "attempted_at": 1791953952.329134
+  },
+  "C:\\Users\\newbe\\AppData\\Local\\Programs\\Python\\Python311\\python.exe::torch-directml>=0.2.0": {
+    "ok": false,
+    "attempted_at": 1791957641.6162775
+  },
+  "C:\\Users\\newbe\\AppData\\Local\\Programs\\Python\\Python311\\python.exe::onnxruntime-directml>=1.17.0": {
+    "ok": true,
+    "attempted_at": 1791964926.2684155
+  },
+  "C:\\Users\\newbe\\AppData\\Local\\Programs\\Python\\Python311\\python.exe::kokoro-onnx>=0.4.0": {
+    "ok": true,
+    "attempted_at": 1791957637.5615609
+  },
+  "C:\\Users\\newbe\\AppData\\Local\\Programs\\Python\\Python311\\python.exe::misaki>=0.9.0": {
+    "ok": true,
+    "attempted_at": 1791957640.650842
+  },
+  "C:\\Users\\newbe\\AppData\\Local\\Programs\\Python\\Python311\\python.exe::soundfile>=0.12.0": {
+    "ok": true,
+    "attempted_at": 1791957619.3834476
+  }
+}
