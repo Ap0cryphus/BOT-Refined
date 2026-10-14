@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { orchestrator } from "../services/botStore";
-import { Zap, Stethoscope, Crosshair, Mic, Compass, Play, Square, Shield, Dices } from "lucide-react";
+import { Zap, Stethoscope, Crosshair, Mic, Compass, Play, Square, Shield, Dices, GitBranch } from "lucide-react";
 
 interface TopBarProps {
   onOpenWizard: () => void;
   onOpenDiagnostics: () => void;
+  onOpenGitHubSync: () => void;
 }
 
-export const TopBar: React.FC<TopBarProps> = ({ onOpenWizard, onOpenDiagnostics }) => {
+export const TopBar: React.FC<TopBarProps> = ({ onOpenWizard, onOpenDiagnostics, onOpenGitHubSync }) => {
   const [appMode, setAppMode] = useState(orchestrator.appMode);
   const [autoSpin, setAutoSpin] = useState(orchestrator.autoSpinEnabled);
   const [randomMode, setRandomMode] = useState(orchestrator.randomSpinMode);
@@ -145,6 +146,16 @@ export const TopBar: React.FC<TopBarProps> = ({ onOpenWizard, onOpenDiagnostics 
         >
           <Compass className="w-3.5 h-3.5" />
           <span>🧭 WIZARD</span>
+        </button>
+
+        {/* EXPORT & GITHUB SYNC */}
+        <button
+          onClick={onOpenGitHubSync}
+          className="flex items-center gap-1 px-2 py-1 text-xs font-bold rounded-md bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-sm cursor-pointer border border-emerald-400/40 shadow-emerald-600/20"
+          title="Download full project ZIP or push to GitHub master branch"
+        >
+          <GitBranch className="w-3.5 h-3.5" />
+          <span>📦 EXPORT & GITHUB SYNC</span>
         </button>
 
         {/* !SPIN ONCE */}

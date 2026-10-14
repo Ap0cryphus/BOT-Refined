@@ -12,6 +12,7 @@ import { DiagnosticsModal } from "./components/DiagnosticsModal";
 import { UserDatabaseModal } from "./components/UserDatabaseModal";
 import { SpinAnalyticsModal } from "./components/SpinAnalyticsModal";
 import { HeistSimulatorModal } from "./components/HeistSimulatorModal";
+import { GitHubSyncModal } from "./components/GitHubSyncModal";
 
 export const App: React.FC = () => {
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -19,6 +20,7 @@ export const App: React.FC = () => {
   const [usersOpen, setUsersOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [heistOpen, setHeistOpen] = useState(false);
+  const [gitHubSyncOpen, setGitHubSyncOpen] = useState(false);
 
   return (
     <div className="relative min-h-screen bg-[#060A12] text-[#F8FAFC] flex flex-col p-2 md:p-3 space-y-2 max-w-[1720px] mx-auto select-none overflow-x-hidden">
@@ -26,6 +28,7 @@ export const App: React.FC = () => {
       <TopBar
         onOpenWizard={() => setWizardOpen(true)}
         onOpenDiagnostics={() => setDiagnosticsOpen(true)}
+        onOpenGitHubSync={() => setGitHubSyncOpen(true)}
       />
 
       {/* Dedicated Clone Mode Live Status & Audio Hijack Ribbon */}
@@ -59,6 +62,7 @@ export const App: React.FC = () => {
       <UserDatabaseModal isOpen={usersOpen} onClose={() => setUsersOpen(false)} />
       <SpinAnalyticsModal isOpen={analyticsOpen} onClose={() => setAnalyticsOpen(false)} />
       <HeistSimulatorModal isOpen={heistOpen} onClose={() => setHeistOpen(false)} />
+      <GitHubSyncModal isOpen={gitHubSyncOpen} onClose={() => setGitHubSyncOpen(false)} />
     </div>
   );
 };
