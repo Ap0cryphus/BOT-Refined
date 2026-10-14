@@ -1,0 +1,6 @@
+"__pycache__/" 
+"logs/" 
+"data/voice_samples/" 
+"data/voice_clone/" 
+"*.db" 
+"data/.optional_stack_state.json"    
