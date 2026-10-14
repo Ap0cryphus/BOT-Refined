@@ -1,0 +1,6 @@
+{
+  "summary": "Architectural plan for the Dedicated Clone Mode with safe state toggle, automatic speaker mic hijack pipeline, instant XTTS-v2 embedding generation, automatic return to regular bot operation, and synchronized control alignment.",
+  "updatedAt": "2026-10-14T10:41:40.241227041Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

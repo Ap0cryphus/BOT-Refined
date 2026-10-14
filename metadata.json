@@ -1,0 +1,8 @@
+{
+  "name": "KaeKae_Toad & PepeFrog Supreme Command",
+  "description": "Unified Camfrog room listener, precision automation orchestrator, PepeFrog cross-game & heist optimization engine with real-time multi-terminal telemetry.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
